@@ -1,0 +1,13 @@
+.git
+.venv
+node_modules
+.vinext
+.next
+.wrangler
+data
+outputs
+work
+coverage
+playwright-report
+test-results
+*.log

@@ -1,0 +1,50 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.engine
+    environment:
+      SOURCEDGRID_DATA_DIR: /data
+      SOURCEDGRID_CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+    volumes:
+      - sourcedgrid_data:/data
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.engine
+    command: ["python", "-m", "app.worker"]
+    working_dir: /app/backend
+    environment:
+      SOURCEDGRID_DATA_DIR: /data
+      SOURCEDGRID_WORKER_CONCURRENCY: ${SOURCEDGRID_WORKER_CONCURRENCY:-5}
+    volumes:
+      - sourcedgrid_data:/data
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  sourcedgrid_data:

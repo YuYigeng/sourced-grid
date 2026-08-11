@@ -1,0 +1,111 @@
+apiVersion: sourcedgrid/v1alpha1
+kind: ResearchTemplate
+metadata:
+  slug: github-repository-radar
+  name: GitHub Repository Radar
+  version: 0.1.0
+  description: Compare repository momentum, maintenance, and product signals with a receipt behind every value.
+defaults:
+  budget_usd: 2.0
+columns:
+  - key: repo_url
+    label: Repository
+    kind: input
+    width: 250
+  - key: canonical_name
+    label: Canonical name
+    kind: transform
+    width: 175
+    depends_on: [repo_url]
+    config:
+      source: repo_url
+      operation: canonical_repository
+  - key: github_snapshot
+    label: GitHub snapshot
+    kind: github
+    width: 150
+    depends_on: [repo_url]
+    config:
+      source: repo_url
+      resource: snapshot
+  - key: stars
+    label: Stars
+    kind: transform
+    width: 105
+    depends_on: [github_snapshot]
+    config:
+      source: github_snapshot
+      operation: select
+      path: repository.stargazers_count
+  - key: primary_language
+    label: Language
+    kind: transform
+    width: 125
+    depends_on: [github_snapshot]
+    config:
+      source: github_snapshot
+      operation: primary_language
+  - key: license
+    label: License
+    kind: transform
+    width: 105
+    depends_on: [github_snapshot]
+    config:
+      source: github_snapshot
+      operation: select
+      path: repository.license.spdx_id
+  - key: last_push
+    label: Last push
+    kind: transform
+    width: 145
+    depends_on: [github_snapshot]
+    config:
+      source: github_snapshot
+      operation: select
+      path: repository.pushed_at
+  - key: latest_release
+    label: Latest release
+    kind: transform
+    width: 145
+    depends_on: [github_snapshot]
+    config:
+      source: github_snapshot
+      operation: latest_release
+  - key: activity
+    label: Issue / PR activity
+    kind: transform
+    width: 165
+    depends_on: [github_snapshot]
+    config:
+      source: github_snapshot
+      operation: activity_summary
+  - key: health_score
+    label: Health
+    kind: transform
+    width: 100
+    depends_on: [github_snapshot]
+    config:
+      source: github_snapshot
+      operation: health_score
+  - key: readme_summary
+    label: Sourced summary
+    kind: llm
+    width: 300
+    depends_on: [canonical_name, github_snapshot, health_score]
+    config:
+      provider: anthropic
+      model: claude-sonnet-4-5
+    prompt: Summarize the repository's product, target user, strongest proof point, and main adoption risk in no more than 70 words.
+    output_schema:
+      type: string
+  - key: recommendation
+    label: Recommendation
+    kind: llm
+    width: 260
+    depends_on: [canonical_name, github_snapshot, health_score, readme_summary]
+    config:
+      provider: anthropic
+      model: claude-sonnet-4-5
+    prompt: Give a one-sentence adopt, watch, or skip recommendation. Cite only facts present in the supplied source data.
+    output_schema:
+      type: string
