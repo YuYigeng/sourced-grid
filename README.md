@@ -1,5 +1,7 @@
 # SourcedGrid
 
+> Continuing development on another machine or in a new agent session? Start with [`PROJECT_HANDOFF.md`](PROJECT_HANDOFF.md).
+
 **Open-source agentic spreadsheet for sourced, repeatable research.**
 
 SourcedGrid turns a list of repositories into a structured research grid. Each generated cell keeps a receipt: source URLs, raw artifact hash, connector, model, prompt, duration, token use, and estimated cost.
