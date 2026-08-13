@@ -11,7 +11,7 @@ def test_workspace_bootstrap_import_export_and_secret_redaction() -> None:
         grids = client.get("/v1/grids").json()
         assert grids[0]["name"] == "GitHub Repository Radar"
         grid_id = grids[0]["id"]
-        before = len(grids[0]["rows"])
+        before = grids[0]["row_count"]
         response = client.post(
             f"/v1/grids/{grid_id}/import",
             json={"values": ["encode/httpx", "encode/httpx"]},
@@ -29,6 +29,9 @@ def test_workspace_bootstrap_import_export_and_secret_redaction() -> None:
         csv_response = client.get(f"/v1/grids/{grid_id}/export?format=csv")
         assert csv_response.status_code == 200
         assert "Repository" in csv_response.text
+        json_response = client.get(f"/v1/grids/{grid_id}/export?format=json")
+        assert json_response.status_code == 200
+        assert json_response.json()["rows"][0]["cells"][0]["provenance"]["created_at"]
 
 
 def test_template_endpoint_and_empty_grid_run_guard() -> None:

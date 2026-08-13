@@ -1,0 +1,34 @@
+name: Bug report
+description: Report a reproducible SourcedGrid problem
+title: "[Bug]: "
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: Never paste API keys, tokens, exported secrets, or private research data.
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Include exact commands and the smallest safe input that reproduces the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installation
+      options: [Docker Compose, Local development]
+    validations:
+      required: true

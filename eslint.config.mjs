@@ -11,6 +11,7 @@ const eslintConfig = defineConfig([
   globalIgnores([
     ".next/**",
     ".venv/**",
+    "backend/.venv/**",
     ".wrangler/**",
     "coverage/**",
     "dist/**",

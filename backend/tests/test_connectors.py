@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from app.connectors.github import GitHubConnector, parse_repository, select_path
-from app.connectors.http import validate_public_url
+from app.connectors.http import PinnedNetworkBackend, public_ip_addresses, validate_public_url
 from app.connectors.llm import parse_value, render_prompt
 from app.connectors.transform import health_score
 
@@ -38,6 +38,22 @@ def test_github_errors_are_classified() -> None:
 async def test_http_connector_blocks_loopback() -> None:
     with pytest.raises(ValueError, match="blocked"):
         await validate_public_url("http://127.0.0.1/internal")
+
+
+def test_dns_validation_rejects_any_private_answer() -> None:
+    records = [
+        (None, None, None, None, ("93.184.216.34", 443)),
+        (None, None, None, None, ("127.0.0.1", 443)),
+    ]
+    with pytest.raises(ValueError, match="blocked"):
+        public_ip_addresses(records)
+
+
+@pytest.mark.asyncio
+async def test_pinned_backend_rejects_a_different_hostname() -> None:
+    backend = PinnedNetworkBackend("example.com", ("93.184.216.34",))
+    with pytest.raises(Exception, match="Unvalidated destination"):
+        await backend.connect_tcp("attacker.invalid", 443, timeout=0.01)
 
 
 def test_llm_output_and_prompt_injection_boundary() -> None:

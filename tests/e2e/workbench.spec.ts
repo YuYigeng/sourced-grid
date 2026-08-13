@@ -19,3 +19,16 @@ test("opens import and encrypted credential flows", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Local credentials" })).toBeVisible();
   await expect(page.getByLabel(/GitHub token/)).toHaveAttribute("type", "password");
 });
+
+test("opens the visual column DAG and run history", async ({ page }) => {
+  await page.goto("/");
+  const dag = page.getByRole("button", { name: "Edit DAG" });
+  if (await dag.isEnabled()) {
+    await dag.click();
+    await expect(page.getByRole("dialog", { name: "Grid schema editor" })).toBeVisible();
+    await expect(page.getByText("Column DAG")).toBeVisible();
+    await page.getByRole("button", { name: /close/i }).last().click();
+  }
+  await page.getByRole("button", { name: /Run log/ }).click();
+  await expect(page.getByRole("heading", { name: "Run history" })).toBeVisible();
+});

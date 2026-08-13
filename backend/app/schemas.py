@@ -59,9 +59,19 @@ class GridOut(BaseModel):
     rows: list[RowOut]
 
 
+class BulkImportRows(BaseModel):
+    rows: list[dict[str, Any]] = Field(min_length=1, max_length=1000)
+    duplicate_strategy: Literal["skip", "replace", "allow"] = "skip"
+
+
 class GridCreate(BaseModel):
     name: str = Field(min_length=1, max_length=180)
     description: str = Field(default="", max_length=2000)
+
+
+class GridPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=180)
+    description: str | None = Field(default=None, max_length=2000)
 
 
 class ColumnIn(BaseModel):
@@ -88,8 +98,17 @@ class ImportRows(BaseModel):
     values: list[str] = Field(min_length=1, max_length=1000)
 
 
+class RowCreate(BaseModel):
+    value: str = Field(min_length=1, max_length=20_000)
+
+
+class InputCellPatch(BaseModel):
+    value: str = Field(min_length=1, max_length=20_000)
+
+
 class RunCreate(BaseModel):
     budget_usd: float = Field(default=2.0, ge=0, le=1000)
+    force_refresh: bool = False
 
 
 class RunOut(BaseModel):
@@ -100,6 +119,33 @@ class RunOut(BaseModel):
     failed_tasks: int
     spent_usd: float
     budget_usd: float
+
+
+class ProviderCredentialIn(BaseModel):
+    value: str = Field(min_length=1, max_length=20_000)
+
+
+class ProviderCreate(BaseModel):
+    id: str = Field(pattern=r"^[a-z][a-z0-9_-]{1,119}$")
+    display_name: str = Field(min_length=1, max_length=180)
+    base_url: str = Field(min_length=1, max_length=2000)
+    default_model: str = Field(min_length=1, max_length=180)
+    credential_mode: Literal["required", "none"] = "required"
+    trusted: Literal[True]
+
+
+class ProviderPatch(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=180)
+    base_url: str | None = Field(default=None, min_length=1, max_length=2000)
+    default_model: str | None = Field(default=None, min_length=1, max_length=180)
+    credential_mode: Literal["required", "none"] | None = None
+    trusted: Literal[True] | None = None
+
+
+class SchemaDraft(BaseModel):
+    schema_version: int = Field(ge=1)
+    columns: list[ColumnIn] = Field(min_length=1)
+    canvas_layout: dict[str, Any] = Field(default_factory=dict)
 
 
 class SecretIn(BaseModel):

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import base64
 import json
+import random
 import re
 import time
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -26,6 +28,7 @@ def parse_repository(value: str) -> tuple[str, str]:
 
 class GitHubConnector(BaseConnector):
     name = "github"
+    version = "2"
 
     async def execute(self, context: ConnectorContext) -> CellResult:
         started = time.perf_counter()
@@ -38,7 +41,7 @@ class GitHubConnector(BaseConnector):
         if not isinstance(source_value, str):
             raise TypeError(f"GitHub source column {source_key} is empty")
         owner, repo = parse_repository(source_value)
-        token = context.vault.get(context.session, "github_token")
+        token = context.secrets.get("github_token")
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
@@ -46,18 +49,23 @@ class GitHubConnector(BaseConnector):
         }
         if token:
             headers["Authorization"] = f"Bearer {token}"
+        if context.prior_etag:
+            headers["If-None-Match"] = context.prior_etag
         base = f"https://api.github.com/repos/{owner}/{repo}"
         settings = get_settings()
         async with httpx.AsyncClient(
             headers=headers, timeout=settings.http_timeout_seconds, follow_redirects=False
         ) as client:
-            repo_data = await self._get(client, base)
+            rate_metadata: dict[str, str | None] = {}
+            repo_data = await self._get(client, base, rate_metadata, etag_key="repository_etag")
             resource = str(context.column.config.get("resource", "snapshot"))
             if resource == "repository":
                 payload: Any = repo_data
                 urls = [str(repo_data.get("html_url", f"https://github.com/{owner}/{repo}"))]
             else:
-                readme, releases, languages, issues, pulls = await self._snapshot_parts(client, base)
+                readme, releases, languages, issues, pulls = await self._snapshot_parts(
+                    client, base, rate_metadata
+                )
                 payload = {
                     "repository": repo_data,
                     "readme": readme,
@@ -84,40 +92,91 @@ class GitHubConnector(BaseConnector):
                 duration_ms=int((time.perf_counter() - started) * 1000),
                 metadata={
                     "repository": f"{owner}/{repo}",
-                    "rate_limit_remaining": client.headers.get("x-ratelimit-remaining"),
+                    **rate_metadata,
+                    "activity_window": "latest 30 issues and latest 30 pull requests by updated_at",
                 },
             )
 
     async def _snapshot_parts(
-        self, client: httpx.AsyncClient, base: str
+        self, client: httpx.AsyncClient, base: str, rate_metadata: dict[str, str | None]
     ) -> tuple[str, list, dict, list, list]:
         readme_response = await client.get(f"{base}/readme")
         if readme_response.status_code == 404:
             readme = ""
         else:
+            self._capture_rate(readme_response, rate_metadata, etag_key="readme_etag")
             self._raise(readme_response)
             encoded = readme_response.json().get("content", "")
             readme = base64.b64decode(encoded).decode("utf-8", errors="replace") if encoded else ""
-        releases = await self._get(client, f"{base}/releases?per_page=10")
-        languages = await self._get(client, f"{base}/languages")
-        issues = await self._get(client, f"{base}/issues?state=all&sort=updated&per_page=30")
-        pulls = await self._get(client, f"{base}/pulls?state=all&sort=updated&direction=desc&per_page=30")
+        releases = await self._get(client, f"{base}/releases?per_page=10", rate_metadata)
+        languages = await self._get(client, f"{base}/languages", rate_metadata)
+        issues = await self._get(
+            client, f"{base}/issues?state=all&sort=updated&per_page=30", rate_metadata
+        )
+        pulls = await self._get(
+            client,
+            f"{base}/pulls?state=all&sort=updated&direction=desc&per_page=30",
+            rate_metadata,
+        )
         return readme[:100_000], releases, languages, issues, pulls
 
-    async def _get(self, client: httpx.AsyncClient, url: str) -> Any:
+    async def _get(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        rate_metadata: dict[str, str | None],
+        *,
+        etag_key: str | None = None,
+    ) -> Any:
         response = await client.get(url)
+        self._capture_rate(response, rate_metadata, etag_key=etag_key)
         self._raise(response)
         return response.json()
 
     @staticmethod
+    def _capture_rate(
+        response: httpx.Response,
+        target: dict[str, str | None],
+        *,
+        etag_key: str | None = None,
+    ) -> None:
+        target.update(
+            rate_limit_remaining=response.headers.get("x-ratelimit-remaining"),
+            rate_limit_reset=response.headers.get("x-ratelimit-reset"),
+            retry_after=response.headers.get("retry-after"),
+        )
+        if etag_key:
+            target[etag_key] = response.headers.get("etag")
+
+    @staticmethod
     def _raise(response: httpx.Response) -> None:
+        if response.status_code == 304:
+            raise GitHubNotModified
         if response.status_code == 401:
             raise PermissionError("GitHub token was rejected")
         if response.status_code == 403 and response.headers.get("x-ratelimit-remaining") == "0":
-            raise RuntimeError("GitHub rate limit exhausted; add a token or retry after reset")
+            reset = response.headers.get("x-ratelimit-reset")
+            retry_after = response.headers.get("retry-after")
+            if retry_after and retry_after.isdigit():
+                retry_at = datetime.now(UTC).timestamp() + int(retry_after)
+            elif reset and reset.isdigit():
+                retry_at = float(reset)
+            else:
+                retry_at = datetime.now(UTC).timestamp() + 60
+            raise GitHubRateLimitError(retry_at + random.uniform(0.5, 3.0))
         if response.status_code == 404:
             raise FileNotFoundError("GitHub repository or resource was not found")
         response.raise_for_status()
+
+
+class GitHubRateLimitError(RuntimeError):
+    def __init__(self, retry_at_epoch: float) -> None:
+        super().__init__("GitHub rate limit exhausted; the task will resume after reset")
+        self.retry_at = datetime.fromtimestamp(retry_at_epoch, UTC)
+
+
+class GitHubNotModified(RuntimeError):
+    pass
 
 
 def select_path(value: Any, path: str) -> Any:
