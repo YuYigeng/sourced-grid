@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.connectors.base import BaseConnector, ColumnSnapshot, ConnectorContext, ProviderSnapshot
-from app.connectors.llm import LlmConnector, parse_value
+from app.connectors.llm import LlmConnector, build_response_format, parse_value
 from app.db import SessionLocal
 from app.engine import CONNECTORS, ResearchWorker, SafeFailure, create_run, safe_failure
 from app.main import app
@@ -33,6 +33,17 @@ def test_llm_requires_exact_envelope_and_validates_schema() -> None:
         parse_value('{"value": 3, "debug": true}', {"type": "integer"})
     with pytest.raises(ValueError, match="does not match"):
         parse_value('{"value": "3"}', {"type": "integer"})
+
+
+def test_llm_structured_output_modes_match_provider_capabilities() -> None:
+    schema = {"type": "string"}
+    strict = build_response_format("json_schema", schema)
+    assert strict is not None
+    assert strict["json_schema"]["schema"]["properties"]["value"] == schema
+    assert build_response_format("json_object", schema) == {"type": "json_object"}
+    assert build_response_format("prompt_only", schema) is None
+    with pytest.raises(ValueError, match="Unsupported structured output mode"):
+        build_response_format("invalid", schema)
 
 
 def test_template_cannot_control_provider_endpoint_or_secret() -> None:
@@ -85,7 +96,15 @@ def test_cache_fingerprint_tracks_schema_provider_and_connector_version() -> Non
     provider_changed = connector.fingerprint(
         ConnectorContext(
             column=column,
-            provider=ProviderSnapshot("two", "openai_compatible", "https://api.example/v1", "m", "required"),
+            provider=ProviderSnapshot(
+                id="two",
+                provider_type="openai_compatible",
+                base_url="https://api.example/v1",
+                default_model="m",
+                structured_output_mode="json_object",
+                default_temperature=0.5,
+                credential_mode="required",
+            ),
             **base,
         )
     )

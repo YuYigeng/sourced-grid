@@ -21,7 +21,7 @@ import {
 import { Copy, LayoutDashboard, Plus, Redo2, Save, Trash2, Undo2, X } from "lucide-react";
 import "@xyflow/react/dist/style.css";
 import { api } from "./api";
-import type { ColumnKind, GridDetail, GridSchemaColumn } from "./types";
+import type { ColumnKind, GridDetail, GridSchemaColumn, ProviderProfile } from "./types";
 
 type ColumnNodeData = GridSchemaColumn & { label: string };
 type ColumnNode = Node<ColumnNodeData, "column">;
@@ -99,7 +99,7 @@ function layoutGraph(nodes: ColumnNode[], edges: Edge[]) {
   });
 }
 
-export function SchemaEditor({ grid, onClose, onSaved }: { grid: GridDetail; onClose: () => void; onSaved: (grid: GridDetail) => void }) {
+export function SchemaEditor({ grid, providers, onClose, onSaved }: { grid: GridDetail; providers: ProviderProfile[]; onClose: () => void; onSaved: (grid: GridDetail) => void }) {
   const initial = useMemo(() => toGraph(grid), [grid]);
   const [nodes, setNodes, onNodesChange] = useNodesState<ColumnNode>(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
@@ -111,6 +111,9 @@ export function SchemaEditor({ grid, onClose, onSaved }: { grid: GridDetail; onC
   const [baseline, setBaseline] = useState(() => JSON.stringify(initial));
 
   const selected = nodes.find((node) => node.id === selectedId);
+  const selectedProvider = providers.find(
+    (provider) => provider.id === String(selected?.data.config.provider_ref ?? ""),
+  );
   const dirty = JSON.stringify({ nodes, edges }) !== baseline;
 
   const checkpoint = useCallback(() => {
@@ -141,7 +144,7 @@ export function SchemaEditor({ grid, onClose, onSaved }: { grid: GridDetail; onC
       id: key,
       type: "column",
       position: { x: 80 + nodes.length * 35, y: 80 + nodes.length * 35 },
-      data: { key, label: `${kind[0].toUpperCase()}${kind.slice(1)} ${suffix}`, kind, width: 180, depends_on: [], config: kind === "llm" ? { provider_ref: "anthropic" } : {}, prompt: kind === "llm" ? "" : null, output_schema: {} },
+      data: { key, label: `${kind[0].toUpperCase()}${kind.slice(1)} ${suffix}`, kind, width: 180, depends_on: [], config: kind === "llm" ? { provider_ref: providers.find((provider) => provider.configured || provider.credential_mode === "none")?.id ?? providers[0]?.id ?? "anthropic" } : {}, prompt: kind === "llm" ? "" : null, output_schema: {} },
     };
     setNodes((items) => [...items, node]);
     setSelectedId(key);
@@ -162,6 +165,14 @@ export function SchemaEditor({ grid, onClose, onSaved }: { grid: GridDetail; onC
     while (nodes.some((node) => node.id === key)) key += "_copy";
     setNodes((items) => [...items, { ...selected, id: key, selected: false, position: { x: selected.position.x + 40, y: selected.position.y + 100 }, data: { ...selected.data, key, label: `${selected.data.label} copy` } }]);
     setSelectedId(key);
+  }
+
+  function updateLlmModel(model: string) {
+    if (!selected) return;
+    const config = { ...selected.data.config };
+    if (model.trim()) config.model = model;
+    else delete config.model;
+    updateSelected({ config });
   }
 
   function undo() {
@@ -253,7 +264,9 @@ export function SchemaEditor({ grid, onClose, onSaved }: { grid: GridDetail; onC
               <label>Label<input value={selected.data.label} onChange={(event) => updateSelected({ label: event.target.value })} /></label>
               <label>Width<input type="number" min={80} max={800} value={selected.data.width} onChange={(event) => updateSelected({ width: Number(event.target.value) })} /></label>
               {selected.data.kind === "llm" && <>
-                <label>Provider reference<input value={String(selected.data.config.provider_ref ?? "anthropic")} onChange={(event) => updateSelected({ config: { ...selected.data.config, provider_ref: event.target.value } })} /></label>
+                <label>Provider<select value={String(selected.data.config.provider_ref ?? providers[0]?.id ?? "anthropic")} onChange={(event) => updateSelected({ config: { ...selected.data.config, provider_ref: event.target.value } })}>{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.display_name} · {provider.configured || provider.credential_mode === "none" ? "ready" : "needs key"}</option>)}</select></label>
+                <label>Model override<input value={String(selected.data.config.model ?? "")} onChange={(event) => updateLlmModel(event.target.value)} placeholder={selectedProvider ? `Inherited: ${selectedProvider.default_model}` : "Use provider default"} /></label>
+                {selectedProvider && <p className="provider-capability">{selectedProvider.structured_output_mode.replaceAll("_", " ")} · temperature {selectedProvider.default_temperature}</p>}
                 <label>Prompt<textarea value={selected.data.prompt ?? ""} onChange={(event) => updateSelected({ prompt: event.target.value })} /></label>
               </>}
               {selected.data.kind !== "input" && <label>Connector config (JSON)<textarea value={JSON.stringify(selected.data.config, null, 2)} onChange={(event) => { try { updateSelected({ config: JSON.parse(event.target.value) }); setError(null); } catch { setError("Connector config must be valid JSON."); } }} /></label>}

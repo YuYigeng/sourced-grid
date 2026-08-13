@@ -47,6 +47,7 @@ import type {
   ProviderProfile,
   RunSummary,
   SecretSummary,
+  StructuredOutputMode,
   TemplateSummary,
 } from "./types";
 
@@ -112,6 +113,88 @@ function GridValue({ cell, columnKey }: { cell?: GridCell; columnKey: string }) 
   return <span>{formatValue(value, columnKey)}</span>;
 }
 
+const outputModeLabels: Record<StructuredOutputMode, string> = {
+  json_schema: "Strict JSON Schema",
+  json_object: "JSON object",
+  prompt_only: "Prompt + local validation",
+};
+
+function ProviderCard({
+  provider,
+  onChanged,
+}: {
+  provider: ProviderProfile;
+  onChanged: (message: string) => Promise<void>;
+}) {
+  const [baseUrl, setBaseUrl] = useState(provider.base_url);
+  const [model, setModel] = useState(provider.default_model);
+  const [outputMode, setOutputMode] = useState(provider.structured_output_mode);
+  const [temperature, setTemperature] = useState(provider.default_temperature);
+  const [credential, setCredential] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const availableOutputModes = provider.provider_type === "anthropic"
+    ? (["prompt_only"] as StructuredOutputMode[])
+    : (Object.keys(outputModeLabels) as StructuredOutputMode[]);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.patchProvider(provider.id, {
+        ...(!provider.builtin ? { base_url: baseUrl } : {}),
+        default_model: model,
+        structured_output_mode: outputMode,
+        default_temperature: temperature,
+      });
+      if (provider.credential_mode === "required" && credential) {
+        await api.saveProviderCredential(provider.id, credential);
+      }
+      setCredential("");
+      await onChanged(`${provider.display_name} configuration saved locally.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Provider save failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm(`Remove ${provider.display_name}?`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteProvider(provider.id);
+      await onChanged(`${provider.display_name} removed.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Provider removal failed");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <details className="provider-card">
+      <summary>
+        <span><strong>{provider.display_name}</strong><small>{provider.default_model}</small></span>
+        <i className={provider.configured || provider.credential_mode === "none" ? "ready" : "needs-key"}>{provider.configured || provider.credential_mode === "none" ? "Ready" : "Needs key"}</i>
+      </summary>
+      <div className="provider-card-body">
+        <label>API endpoint<input value={baseUrl} disabled={provider.builtin} onChange={(event) => setBaseUrl(event.target.value)} /></label>
+        <label>Default model<input value={model} onChange={(event) => setModel(event.target.value)} /></label>
+        <label>Structured output<select value={outputMode} onChange={(event) => setOutputMode(event.target.value as StructuredOutputMode)}>{availableOutputModes.map((value) => <option key={value} value={value}>{outputModeLabels[value]}</option>)}</select></label>
+        <label>Temperature<input type="number" min={0} max={2} step={0.1} value={temperature} onChange={(event) => setTemperature(Number(event.target.value))} /></label>
+        {provider.credential_mode === "required" && <label>API key <span>{provider.configured ? "Configured · enter to replace" : "Required"}</span><input type="password" value={credential} onChange={(event) => setCredential(event.target.value)} placeholder="Stored encrypted; never returned" /></label>}
+        <p className="provider-help">{outputMode === "json_schema" ? "Send the value schema to compatible providers and validate it again locally." : outputMode === "json_object" ? "Request JSON mode, then enforce the value schema locally." : "Do not send response_format; require the JSON envelope in the prompt and validate locally."}</p>
+        {error && <p className="provider-error">{error}</p>}
+        <div className="provider-card-actions">
+          {!provider.builtin && <button className="danger-button" disabled={busy} onClick={() => void remove()}>Remove</button>}
+          <button className="secondary-button" disabled={busy || !model} onClick={() => void save()}>{busy ? "Saving…" : "Save provider"}</button>
+        </div>
+      </div>
+    </details>
+  );
+}
+
 export function SourcedGridApp() {
   const [grid, setGrid] = useState<GridDetail>(sampleGrid);
   const [selectedCell, setSelectedCell] = useState<GridCell | null>(
@@ -138,8 +221,7 @@ export function SourcedGridApp() {
   const [providers, setProviders] = useState<ProviderProfile[]>([]);
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
   const [githubToken, setGithubToken] = useState("");
-  const [providerKey, setProviderKey] = useState("");
-  const [customProvider, setCustomProvider] = useState({ id: "", display_name: "", base_url: "", default_model: "", credential_mode: "required" as "required" | "none", credential: "" });
+  const [customProvider, setCustomProvider] = useState({ id: "", display_name: "", base_url: "", default_model: "", structured_output_mode: "json_object" as StructuredOutputMode, default_temperature: 0, credential_mode: "required" as "required" | "none", credential: "" });
   const [cellHistory, setCellHistory] = useState<CellExecution[]>([]);
   const [forceRefresh, setForceRefresh] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -294,12 +376,10 @@ export function SourcedGridApp() {
       return;
     }
     if (githubToken) await api.saveSecret("github_token", githubToken);
-    if (providerKey) await api.saveSecret("anthropic_api_key", providerKey);
     setSecrets(await api.secrets());
     setGithubToken("");
-    setProviderKey("");
     setSettingsOpen(false);
-    setNotice("Credentials encrypted locally. Plaintext values are never returned by the API.");
+    setNotice("GitHub credential encrypted locally. Plaintext values are never returned by the API.");
   }
 
   async function createCustomProvider() {
@@ -309,6 +389,8 @@ export function SourcedGridApp() {
       display_name: customProvider.display_name || customProvider.id,
       base_url: customProvider.base_url,
       default_model: customProvider.default_model,
+      structured_output_mode: customProvider.structured_output_mode,
+      default_temperature: customProvider.default_temperature,
       credential_mode: customProvider.credential_mode,
       trusted: true,
     });
@@ -316,8 +398,13 @@ export function SourcedGridApp() {
       await api.saveProviderCredential(profile.id, customProvider.credential);
     }
     setProviders(await api.providers());
-    setCustomProvider({ id: "", display_name: "", base_url: "", default_model: "", credential_mode: "required", credential: "" });
+    setCustomProvider({ id: "", display_name: "", base_url: "", default_model: "", structured_output_mode: "json_object", default_temperature: 0, credential_mode: "required", credential: "" });
     setNotice("Provider profile trusted locally. Templates can reference it but cannot alter its endpoint.");
+  }
+
+  async function refreshProviders(message: string) {
+    setProviders(await api.providers());
+    setNotice(message);
   }
 
   async function selectGrid(id: string) {
@@ -564,25 +651,26 @@ export function SourcedGridApp() {
         <div className="modal-backdrop">
           <section className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
             <div className="modal-icon"><KeyRound size={21} /></div>
-            <h2 id="settings-title">Local credentials</h2>
-            <p>Keys are encrypted by the local engine. Existing plaintext values are never returned.</p>
+            <h2 id="settings-title">Credentials & LLM providers</h2>
+            <p>Choose a preset or add any OpenAI-compatible endpoint. Keys stay encrypted in the local engine and are never returned.</p>
             <label>GitHub token <span>{secrets.find((item) => item.name === "github_token")?.configured ? "Configured" : "Optional"}</span><input type="password" value={githubToken} onChange={(event) => setGithubToken(event.target.value)} placeholder="github_pat_••••••••" /></label>
-            <label>Anthropic API key <span>{secrets.find((item) => item.name === "anthropic_api_key")?.configured ? "Configured" : "Optional"}</span><input type="password" value={providerKey} onChange={(event) => setProviderKey(event.target.value)} placeholder="sk-ant-••••••••" /></label>
-            <div className="provider-list"><strong>Trusted provider profiles</strong>{providers.map((provider) => <div key={provider.id}><span>{provider.display_name}<small>{provider.base_url}</small></span><i>{provider.configured || provider.credential_mode === "none" ? "Ready" : "Needs key"}</i></div>)}</div>
+            <div className="provider-list"><strong>Trusted provider profiles</strong>{providers.map((provider) => <ProviderCard key={provider.id} provider={provider} onChanged={refreshProviders} />)}</div>
             <details className="provider-create"><summary>Add custom OpenAI-compatible provider</summary>
               <label>ID<input value={customProvider.id} onChange={(event) => setCustomProvider((value) => ({ ...value, id: event.target.value }))} placeholder="my-provider" /></label>
               <label>Display name<input value={customProvider.display_name} onChange={(event) => setCustomProvider((value) => ({ ...value, display_name: event.target.value }))} /></label>
               <label>Base URL<input value={customProvider.base_url} onChange={(event) => setCustomProvider((value) => ({ ...value, base_url: event.target.value }))} placeholder="https://api.example.com/v1" /></label>
               <label>Default model<input value={customProvider.default_model} onChange={(event) => setCustomProvider((value) => ({ ...value, default_model: event.target.value }))} /></label>
+              <label>Structured output<select value={customProvider.structured_output_mode} onChange={(event) => setCustomProvider((value) => ({ ...value, structured_output_mode: event.target.value as StructuredOutputMode }))}>{Object.entries(outputModeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+              <label>Temperature<input type="number" min={0} max={2} step={0.1} value={customProvider.default_temperature} onChange={(event) => setCustomProvider((value) => ({ ...value, default_temperature: Number(event.target.value) }))} /></label>
               <label>Credential mode<select value={customProvider.credential_mode} onChange={(event) => setCustomProvider((value) => ({ ...value, credential_mode: event.target.value as "required" | "none" }))}><option value="required">API key (HTTPS public only)</option><option value="none">No credential (local endpoint allowed)</option></select></label>
               {customProvider.credential_mode === "required" && <label>API key<input type="password" value={customProvider.credential} onChange={(event) => setCustomProvider((value) => ({ ...value, credential: event.target.value }))} /></label>}
               <button className="secondary-button" onClick={() => void createCustomProvider()}>Confirm trust & add</button>
             </details>
-            <div className="modal-actions"><button className="secondary-button" onClick={() => setSettingsOpen(false)}>Cancel</button><button className="run-button" onClick={saveSecrets}><ShieldCheck size={15} /> Encrypt & save</button></div>
+            <div className="modal-actions"><button className="secondary-button" onClick={() => setSettingsOpen(false)}>Close</button><button className="run-button" onClick={saveSecrets}><ShieldCheck size={15} /> Save GitHub token</button></div>
           </section>
         </div>
       )}
-      {schemaOpen && <SchemaEditor grid={grid} onClose={() => setSchemaOpen(false)} onSaved={(saved) => { setGrid(saved); setSchemaOpen(false); setNotice("Schema saved atomically."); }} />}
+      {schemaOpen && <SchemaEditor grid={grid} providers={providers} onClose={() => setSchemaOpen(false)} onSaved={(saved) => { setGrid(saved); setSchemaOpen(false); setNotice("Schema saved atomically."); }} />}
     </main>
   );
 }

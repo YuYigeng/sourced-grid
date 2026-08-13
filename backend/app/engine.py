@@ -475,6 +475,8 @@ class ResearchWorker:
                     provider_type=provider.provider_type,
                     base_url=provider.base_url,
                     default_model=provider.default_model,
+                    structured_output_mode=provider.structured_output_mode,
+                    default_temperature=provider.default_temperature,
                     credential_mode=provider.credential_mode,
                 )
                 if provider.secret_name:

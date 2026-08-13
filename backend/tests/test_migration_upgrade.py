@@ -87,3 +87,7 @@ def test_upgrade_from_35a_fixture_preserves_research_artifact_and_secret(tmp_pat
         assert connection.execute(
             text("SELECT COUNT(*) FROM provenance WHERE execution_id IS NOT NULL")
         ).scalar() == 1
+        provider_columns = {
+            row[1] for row in connection.execute(text("PRAGMA table_info(provider_profiles)"))
+        }
+        assert {"structured_output_mode", "default_temperature"} <= provider_columns

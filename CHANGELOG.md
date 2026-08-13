@@ -13,6 +13,7 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - TTL-aware versioned cache, force refresh, worker heartbeat, atomic budget reservation, reset-aware GitHub limits, and persistent SSE replay.
 - DNS-pinned HTTP transport, streamed response limits, artifact download hardening, and structured redacted errors.
 - Visual DAG editor, grid/row APIs, mapped CSV import, Run log, Provider settings, and execution history.
+- LLM presets for DeepSeek, Qwen, Zhipu GLM, MiniMax, SiliconFlow, and Ollama with configurable model, temperature, credential, and structured-output compatibility mode.
 - Technical Documentation Comparator template and release/benchmark infrastructure.
 
 ### Fixed

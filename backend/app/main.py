@@ -854,6 +854,8 @@ async def create_provider(payload: ProviderCreate, session: DbSession) -> dict[s
         display_name=payload.display_name,
         base_url=base_url,
         default_model=payload.default_model,
+        structured_output_mode=payload.structured_output_mode,
+        default_temperature=payload.default_temperature,
         credential_mode=payload.credential_mode,
         secret_name=f"provider:{payload.id}" if payload.credential_mode == "required" else None,
         trusted=True,
@@ -872,6 +874,11 @@ async def patch_provider(
     if profile.builtin and any(key in payload.model_fields_set for key in ("base_url", "credential_mode")):
         raise HTTPException(409, "Built-in provider endpoints cannot be changed")
     values = payload.model_dump(exclude_unset=True)
+    if (
+        profile.provider_type == "anthropic"
+        and values.get("structured_output_mode", profile.structured_output_mode) != "prompt_only"
+    ):
+        raise HTTPException(422, "Anthropic profiles require prompt_only structured output mode")
     credential_mode = values.get("credential_mode", profile.credential_mode)
     base_url = values.get("base_url", profile.base_url)
     try:
@@ -1269,6 +1276,8 @@ def serialize_provider(profile: ProviderProfile, configured: bool) -> dict[str, 
         "display_name": profile.display_name,
         "base_url": profile.base_url,
         "default_model": profile.default_model,
+        "structured_output_mode": profile.structured_output_mode,
+        "default_temperature": profile.default_temperature,
         "credential_mode": profile.credential_mode,
         "trusted": profile.trusted,
         "builtin": profile.builtin,

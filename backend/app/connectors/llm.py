@@ -15,7 +15,7 @@ from .http import pinned_transport
 
 class LlmConnector(BaseConnector):
     name = "llm"
-    version = "2"
+    version = "3"
 
     def fingerprint(self, context: ConnectorContext) -> str:
         provider = context.provider
@@ -28,6 +28,9 @@ class LlmConnector(BaseConnector):
                         "type": provider.provider_type,
                         "base_url": provider.base_url,
                         "default_model": provider.default_model,
+                        "structured_output_mode": provider.structured_output_mode,
+                        "default_temperature": provider.default_temperature,
+                        "credential_mode": provider.credential_mode,
                     }
                     if provider
                     else None
@@ -47,7 +50,9 @@ class LlmConnector(BaseConnector):
         if provider.credential_mode == "required" and not key:
             raise ValueError(f"Credential for provider {provider.id!r} is not configured")
         if provider.provider_type == "anthropic":
-            result = await self._anthropic(key or "", provider.base_url, model, prompt)
+            result = await self._anthropic(
+                key or "", provider.base_url, model, prompt, provider.default_temperature
+            )
         elif provider.provider_type == "openai_compatible":
             result = await self._openai(
                 key,
@@ -55,6 +60,8 @@ class LlmConnector(BaseConnector):
                 model,
                 prompt,
                 context.column.output_schema,
+                provider.structured_output_mode,
+                provider.default_temperature,
                 secure_endpoint=provider.credential_mode == "required",
             )
         else:
@@ -69,7 +76,9 @@ class LlmConnector(BaseConnector):
                 + "Return only JSON with exactly one top-level key named value."
             )
             if provider.provider_type == "anthropic":
-                repaired = await self._anthropic(key or "", provider.base_url, model, correction)
+                repaired = await self._anthropic(
+                    key or "", provider.base_url, model, correction, provider.default_temperature
+                )
             else:
                 repaired = await self._openai(
                     key,
@@ -77,6 +86,8 @@ class LlmConnector(BaseConnector):
                     model,
                     correction,
                     context.column.output_schema,
+                    provider.structured_output_mode,
+                    provider.default_temperature,
                     secure_endpoint=provider.credential_mode == "required",
                 )
             result = merge_usage(result, repaired)
@@ -94,6 +105,8 @@ class LlmConnector(BaseConnector):
                     "provider": provider.id,
                     "base_url": provider.base_url,
                     "model": model,
+                    "structured_output_mode": provider.structured_output_mode,
+                    "temperature": provider.default_temperature,
                     "prompt": prompt,
                     "schema": context.column.output_schema,
                 }
@@ -104,10 +117,16 @@ class LlmConnector(BaseConnector):
             output_tokens=result["output_tokens"],
             cost_usd=estimate_cost(model, result["input_tokens"], result["output_tokens"]),
             duration_ms=int((time.perf_counter() - started) * 1000),
-            metadata={"provider_ref": provider.id, "response_artifact": "redacted_provider_json"},
+            metadata={
+                "provider_ref": provider.id,
+                "structured_output_mode": provider.structured_output_mode,
+                "response_artifact": "redacted_provider_json",
+            },
         )
 
-    async def _anthropic(self, key: str, base_url: str, model: str, prompt: str) -> dict[str, Any]:
+    async def _anthropic(
+        self, key: str, base_url: str, model: str, prompt: str, temperature: float
+    ) -> dict[str, Any]:
         transport = await pinned_transport(base_url)
         async with httpx.AsyncClient(timeout=60, transport=transport, trust_env=False) as client:
             response = await client.post(
@@ -120,7 +139,7 @@ class LlmConnector(BaseConnector):
                 json={
                     "model": model,
                     "max_tokens": 700,
-                    "temperature": 0,
+                    "temperature": temperature,
                     "messages": [{"role": "user", "content": prompt}],
                 },
             )
@@ -144,6 +163,8 @@ class LlmConnector(BaseConnector):
         model: str,
         prompt: str,
         output_schema: dict[str, Any],
+        structured_output_mode: str,
+        temperature: float,
         *,
         secure_endpoint: bool,
     ) -> dict[str, Any]:
@@ -155,33 +176,19 @@ class LlmConnector(BaseConnector):
         headers = {"content-type": "application/json"}
         if key:
             headers["Authorization"] = f"Bearer {key}"
-        response_format: dict[str, Any]
-        if output_schema:
-            response_format = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "sourcedgrid_cell",
-                    "strict": True,
-                    "schema": {
-                        "type": "object",
-                        "properties": {"value": output_schema},
-                        "required": ["value"],
-                        "additionalProperties": False,
-                    },
-                },
-            }
-        else:
-            response_format = {"type": "json_object"}
+        response_format = build_response_format(structured_output_mode, output_schema)
+        payload: dict[str, Any] = {
+            "model": model,
+            "temperature": temperature,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if response_format is not None:
+            payload["response_format"] = response_format
         async with httpx.AsyncClient(timeout=60, transport=transport, trust_env=False) as client:
             response = await client.post(
                 f"{base_url.rstrip('/')}/chat/completions",
                 headers=headers,
-                json={
-                    "model": model,
-                    "temperature": 0,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "response_format": response_format,
-                },
+                json=payload,
             )
             response.raise_for_status()
             body = response.json()
@@ -193,6 +200,30 @@ class LlmConnector(BaseConnector):
             "output_tokens": int(usage.get("completion_tokens", 0)),
             "raw": body,
         }
+
+
+def build_response_format(
+    structured_output_mode: str, output_schema: dict[str, Any]
+) -> dict[str, Any] | None:
+    if structured_output_mode == "prompt_only":
+        return None
+    if structured_output_mode == "json_object" or not output_schema:
+        return {"type": "json_object"}
+    if structured_output_mode != "json_schema":
+        raise ValueError(f"Unsupported structured output mode: {structured_output_mode}")
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "sourcedgrid_cell",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {"value": output_schema},
+                "required": ["value"],
+                "additionalProperties": False,
+            },
+        },
+    }
 
 
 def render_prompt(instruction: str, inputs: dict[str, Any]) -> str:

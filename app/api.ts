@@ -9,6 +9,7 @@ import type {
   RunDetail,
   RunSummary,
   SecretSummary,
+  StructuredOutputMode,
   TemplateSummary,
 } from "./types";
 
@@ -119,8 +120,15 @@ export const api = {
     body: JSON.stringify({ value }),
   }),
   providers: () => request<ProviderProfile[]>("/v1/providers"),
-  createProvider: (profile: { id: string; display_name: string; base_url: string; default_model: string; credential_mode: "required" | "none"; trusted: true }) =>
+  createProvider: (profile: { id: string; display_name: string; base_url: string; default_model: string; structured_output_mode: StructuredOutputMode; default_temperature: number; credential_mode: "required" | "none"; trusted: true }) =>
     request<ProviderProfile>("/v1/providers", { method: "POST", body: JSON.stringify(profile) }),
+  patchProvider: (providerId: string, patch: { display_name?: string; base_url?: string; default_model?: string; structured_output_mode?: StructuredOutputMode; default_temperature?: number; credential_mode?: "required" | "none" }) =>
+    request<ProviderProfile>(`/v1/providers/${providerId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  deleteProvider: (providerId: string) =>
+    request<void>(`/v1/providers/${providerId}`, { method: "DELETE" }),
   saveProviderCredential: (providerId: string, value: string) =>
     request<{ id: string; configured: boolean }>(`/v1/providers/${providerId}/credential`, {
       method: "PUT",

@@ -24,6 +24,8 @@ class ProviderSnapshot:
     provider_type: str
     base_url: str
     default_model: str
+    structured_output_mode: str
+    default_temperature: float
     credential_mode: str
 
 

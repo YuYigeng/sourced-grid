@@ -11,6 +11,8 @@ export type CellStatus =
 
 export type ColumnKind = "input" | "github" | "http" | "transform" | "llm";
 
+export type StructuredOutputMode = "json_schema" | "json_object" | "prompt_only";
+
 export interface ColumnDefinition {
   id: string;
   key: string;
@@ -135,6 +137,8 @@ export interface ProviderProfile {
   display_name: string;
   base_url: string;
   default_model: string;
+  structured_output_mode: StructuredOutputMode;
+  default_temperature: number;
   credential_mode: "required" | "none";
   trusted: boolean;
   builtin: boolean;

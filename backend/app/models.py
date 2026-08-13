@@ -230,6 +230,8 @@ class ProviderProfile(Base, TimestampMixin):
     display_name: Mapped[str] = mapped_column(String(180))
     base_url: Mapped[str] = mapped_column(Text)
     default_model: Mapped[str] = mapped_column(String(180))
+    structured_output_mode: Mapped[str] = mapped_column(String(30), default="json_schema")
+    default_temperature: Mapped[float] = mapped_column(Float, default=0.0)
     credential_mode: Mapped[str] = mapped_column(String(30), default="required")
     secret_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     trusted: Mapped[bool] = mapped_column(Boolean, default=False)

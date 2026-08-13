@@ -18,7 +18,8 @@ The first included workflow, **GitHub Repository Radar**, compares repository he
 - Visual, undoable column DAG editor with cycle checks and optimistic schema versions.
 - GitHub snapshots covering repository metadata, README, releases, languages, issues, and pull requests.
 - Deterministic maintenance score and activity fields that work without an LLM key.
-- Anthropic and OpenAI-compatible structured-output connectors.
+- Presets for Anthropic, OpenAI, DeepSeek, Alibaba Cloud Qwen, Zhipu GLM, MiniMax, SiliconFlow, and local Ollama, plus custom OpenAI-compatible endpoints.
+- Provider-aware output modes (`json_schema`, `json_object`, or prompt-only) with strict local JSON Schema validation for every LLM result.
 - Immutable `CellExecution` history and execution-to-execution lineage; old runs remain exportable.
 - SQLite WAL queue with heartbeat leases, ownership checks, atomic budget reservation, reset-aware GitHub scheduling, cancellation protection, and crash recovery.
 - Content-addressed raw artifacts and source receipts for every successful generated cell.
@@ -38,7 +39,7 @@ docker compose up --build
 
 Open [http://localhost:3000](http://localhost:3000). The API documentation is available at [http://localhost:8000/docs](http://localhost:8000/docs).
 
-The app starts with three public repositories. Deterministic GitHub research works without an LLM key. Add a GitHub token and optional provider key in **Settings → Local credentials**. Credentials are encrypted into the Docker data volume.
+The app starts with three public repositories. Deterministic GitHub research works without an LLM key. Add a GitHub token and configure an optional LLM provider in **Settings → Credentials & LLM providers**. Credentials are encrypted into the Docker data volume.
 
 API and worker containers use Cloudflare's public resolvers by default so VPN fake-IP DNS does not conflict with SSRF validation. If your network requires different trusted resolvers, set `SOURCEDGRID_DNS_PRIMARY` and `SOURCEDGRID_DNS_SECONDARY` before starting Compose.
 

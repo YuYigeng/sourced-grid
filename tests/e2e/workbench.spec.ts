@@ -16,7 +16,7 @@ test("opens import and encrypted credential flows", async ({ page }) => {
   await page.getByRole("button", { name: "Cancel" }).click();
 
   await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.getByRole("heading", { name: "Local credentials" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Credentials & LLM providers" })).toBeVisible();
   await expect(page.getByLabel(/GitHub token/)).toHaveAttribute("type", "password");
 });
 

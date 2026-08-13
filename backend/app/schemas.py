@@ -130,6 +130,8 @@ class ProviderCreate(BaseModel):
     display_name: str = Field(min_length=1, max_length=180)
     base_url: str = Field(min_length=1, max_length=2000)
     default_model: str = Field(min_length=1, max_length=180)
+    structured_output_mode: Literal["json_schema", "json_object", "prompt_only"] = "json_schema"
+    default_temperature: float = Field(default=0, ge=0, le=2)
     credential_mode: Literal["required", "none"] = "required"
     trusted: Literal[True]
 
@@ -138,6 +140,8 @@ class ProviderPatch(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=180)
     base_url: str | None = Field(default=None, min_length=1, max_length=2000)
     default_model: str | None = Field(default=None, min_length=1, max_length=180)
+    structured_output_mode: Literal["json_schema", "json_object", "prompt_only"] | None = None
+    default_temperature: float | None = Field(default=None, ge=0, le=2)
     credential_mode: Literal["required", "none"] | None = None
     trusted: Literal[True] | None = None
 
