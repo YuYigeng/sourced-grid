@@ -132,6 +132,9 @@ class ProviderCreate(BaseModel):
     default_model: str = Field(min_length=1, max_length=180)
     structured_output_mode: Literal["json_schema", "json_object", "prompt_only"] = "json_schema"
     default_temperature: float = Field(default=0, ge=0, le=2)
+    input_price_per_million_usd: float | None = Field(default=None, ge=0)
+    cached_input_price_per_million_usd: float | None = Field(default=None, ge=0)
+    output_price_per_million_usd: float | None = Field(default=None, ge=0)
     credential_mode: Literal["required", "none"] = "required"
     trusted: Literal[True]
 
@@ -142,6 +145,9 @@ class ProviderPatch(BaseModel):
     default_model: str | None = Field(default=None, min_length=1, max_length=180)
     structured_output_mode: Literal["json_schema", "json_object", "prompt_only"] | None = None
     default_temperature: float | None = Field(default=None, ge=0, le=2)
+    input_price_per_million_usd: float | None = Field(default=None, ge=0)
+    cached_input_price_per_million_usd: float | None = Field(default=None, ge=0)
+    output_price_per_million_usd: float | None = Field(default=None, ge=0)
     credential_mode: Literal["required", "none"] | None = None
     trusted: Literal[True] | None = None
 

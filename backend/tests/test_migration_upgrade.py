@@ -90,4 +90,10 @@ def test_upgrade_from_35a_fixture_preserves_research_artifact_and_secret(tmp_pat
         provider_columns = {
             row[1] for row in connection.execute(text("PRAGMA table_info(provider_profiles)"))
         }
-        assert {"structured_output_mode", "default_temperature"} <= provider_columns
+        assert {
+            "structured_output_mode",
+            "default_temperature",
+            "input_price_per_million_usd",
+            "cached_input_price_per_million_usd",
+            "output_price_per_million_usd",
+        } <= provider_columns

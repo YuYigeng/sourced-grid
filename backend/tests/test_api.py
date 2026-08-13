@@ -58,6 +58,9 @@ def test_builtin_llm_providers_and_custom_capabilities() -> None:
             "ollama",
         } <= set(providers)
         assert providers["deepseek"]["structured_output_mode"] == "json_object"
+        assert providers["deepseek"]["input_price_per_million_usd"] == 0.14
+        assert providers["deepseek"]["cached_input_price_per_million_usd"] == 0.0028
+        assert providers["deepseek"]["output_price_per_million_usd"] == 0.28
         assert providers["ollama"]["credential_mode"] == "none"
 
         secret = "provider-secret-never-returned"
@@ -75,6 +78,9 @@ def test_builtin_llm_providers_and_custom_capabilities() -> None:
                 "default_model": "local-model",
                 "structured_output_mode": "prompt_only",
                 "default_temperature": 0.7,
+                "input_price_per_million_usd": 0.5,
+                "cached_input_price_per_million_usd": 0.05,
+                "output_price_per_million_usd": 1.5,
                 "credential_mode": "none",
                 "trusted": True,
             },
@@ -82,14 +88,20 @@ def test_builtin_llm_providers_and_custom_capabilities() -> None:
         assert created.status_code == 201
         assert created.json()["structured_output_mode"] == "prompt_only"
         assert created.json()["default_temperature"] == 0.7
+        assert created.json()["input_price_per_million_usd"] == 0.5
 
         patched = client.patch(
             "/v1/providers/custom-json",
-            json={"structured_output_mode": "json_object", "default_temperature": 0.2},
+            json={
+                "structured_output_mode": "json_object",
+                "default_temperature": 0.2,
+                "output_price_per_million_usd": 1.25,
+            },
         )
         assert patched.status_code == 200
         assert patched.json()["structured_output_mode"] == "json_object"
         assert patched.json()["default_temperature"] == 0.2
+        assert patched.json()["output_price_per_million_usd"] == 1.25
 
         incompatible = client.patch(
             "/v1/providers/anthropic", json={"structured_output_mode": "json_schema"}

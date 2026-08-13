@@ -9,7 +9,7 @@ import httpx
 from jsonschema import ValidationError, validate
 
 from ..schemas import CellResult
-from .base import BaseConnector, ConnectorContext, stable_hash
+from .base import BaseConnector, ConnectorContext, ProviderSnapshot, stable_hash
 from .http import pinned_transport
 
 
@@ -30,6 +30,9 @@ class LlmConnector(BaseConnector):
                         "default_model": provider.default_model,
                         "structured_output_mode": provider.structured_output_mode,
                         "default_temperature": provider.default_temperature,
+                        "input_price_per_million_usd": provider.input_price_per_million_usd,
+                        "cached_input_price_per_million_usd": provider.cached_input_price_per_million_usd,
+                        "output_price_per_million_usd": provider.output_price_per_million_usd,
                         "credential_mode": provider.credential_mode,
                     }
                     if provider
@@ -94,6 +97,7 @@ class LlmConnector(BaseConnector):
             value = parse_value(repaired["text"], context.column.output_schema)
 
         raw = redact_provider_response(result["raw"])
+        cost_usd, cost_metadata = estimate_cost(provider, result)
         return CellResult(
             value=value,
             connector=f"llm:{provider.id}",
@@ -115,12 +119,13 @@ class LlmConnector(BaseConnector):
             prompt=prompt,
             input_tokens=result["input_tokens"],
             output_tokens=result["output_tokens"],
-            cost_usd=estimate_cost(model, result["input_tokens"], result["output_tokens"]),
+            cost_usd=cost_usd,
             duration_ms=int((time.perf_counter() - started) * 1000),
             metadata={
                 "provider_ref": provider.id,
                 "structured_output_mode": provider.structured_output_mode,
                 "response_artifact": "redacted_provider_json",
+                "cost_estimate": cost_metadata,
             },
         )
 
@@ -149,9 +154,12 @@ class LlmConnector(BaseConnector):
             item.get("text", "") for item in body.get("content", []) if item.get("type") == "text"
         )
         usage = body.get("usage", {})
+        input_tokens = int(usage.get("input_tokens", 0))
+        cached_input_tokens = int(usage.get("cache_read_input_tokens", 0))
         return {
             "text": text,
-            "input_tokens": int(usage.get("input_tokens", 0)),
+            "input_tokens": input_tokens,
+            "cached_input_tokens": min(cached_input_tokens, input_tokens),
             "output_tokens": int(usage.get("output_tokens", 0)),
             "raw": body,
         }
@@ -194,9 +202,15 @@ class LlmConnector(BaseConnector):
             body = response.json()
         text = body.get("choices", [{}])[0].get("message", {}).get("content", "")
         usage = body.get("usage", {})
+        input_tokens = int(usage.get("prompt_tokens", 0))
+        details = usage.get("prompt_tokens_details") or {}
+        cached_input_tokens = int(
+            usage.get("prompt_cache_hit_tokens", details.get("cached_tokens", 0)) or 0
+        )
         return {
             "text": text,
-            "input_tokens": int(usage.get("prompt_tokens", 0)),
+            "input_tokens": input_tokens,
+            "cached_input_tokens": min(cached_input_tokens, input_tokens),
             "output_tokens": int(usage.get("completion_tokens", 0)),
             "raw": body,
         }
@@ -254,6 +268,8 @@ def merge_usage(first: dict[str, Any], second: dict[str, Any]) -> dict[str, Any]
     return {
         **second,
         "input_tokens": first["input_tokens"] + second["input_tokens"],
+        "cached_input_tokens": first.get("cached_input_tokens", 0)
+        + second.get("cached_input_tokens", 0),
         "output_tokens": first["output_tokens"] + second["output_tokens"],
     }
 
@@ -278,7 +294,37 @@ def find_source_urls(inputs: dict[str, Any]) -> list[str]:
     )
 
 
-def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    # Conservative UI estimate; provider invoices remain authoritative.
-    input_rate, output_rate = (3.0, 15.0) if "sonnet" in model.lower() else (1.0, 4.0)
-    return round((input_tokens * input_rate + output_tokens * output_rate) / 1_000_000, 8)
+def estimate_cost(
+    provider: ProviderSnapshot, usage: dict[str, Any]
+) -> tuple[float, dict[str, Any]]:
+    input_rate = provider.input_price_per_million_usd
+    output_rate = provider.output_price_per_million_usd
+    cached_rate = provider.cached_input_price_per_million_usd
+    input_tokens = int(usage.get("input_tokens", 0))
+    cached_input_tokens = min(int(usage.get("cached_input_tokens", 0)), input_tokens)
+    uncached_input_tokens = input_tokens - cached_input_tokens
+    available = input_rate is not None and output_rate is not None
+    if not available:
+        cost = 0.0
+    else:
+        effective_cached_rate = cached_rate if cached_rate is not None else input_rate
+        cost = round(
+            (
+                uncached_input_tokens * input_rate
+                + cached_input_tokens * effective_cached_rate
+                + int(usage.get("output_tokens", 0)) * output_rate
+            )
+            / 1_000_000,
+            8,
+        )
+    return cost, {
+        "available": available,
+        "currency": "USD",
+        "source": "provider_profile_snapshot",
+        "input_price_per_million": input_rate,
+        "cached_input_price_per_million": cached_rate,
+        "output_price_per_million": output_rate,
+        "uncached_input_tokens": uncached_input_tokens,
+        "cached_input_tokens": cached_input_tokens,
+        "output_tokens": int(usage.get("output_tokens", 0)),
+    }

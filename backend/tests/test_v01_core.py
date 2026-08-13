@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.connectors.base import BaseConnector, ColumnSnapshot, ConnectorContext, ProviderSnapshot
-from app.connectors.llm import LlmConnector, build_response_format, parse_value
+from app.connectors.llm import LlmConnector, build_response_format, estimate_cost, parse_value
 from app.db import SessionLocal
 from app.engine import CONNECTORS, ResearchWorker, SafeFailure, create_run, safe_failure
 from app.main import app
@@ -44,6 +44,28 @@ def test_llm_structured_output_modes_match_provider_capabilities() -> None:
     assert build_response_format("prompt_only", schema) is None
     with pytest.raises(ValueError, match="Unsupported structured output mode"):
         build_response_format("invalid", schema)
+
+
+def test_llm_cost_uses_provider_snapshot_and_cached_input_rate() -> None:
+    provider = ProviderSnapshot(
+        id="deepseek",
+        provider_type="openai_compatible",
+        base_url="https://api.deepseek.com",
+        default_model="deepseek-v4-flash",
+        structured_output_mode="json_object",
+        default_temperature=0,
+        input_price_per_million_usd=0.14,
+        cached_input_price_per_million_usd=0.0028,
+        output_price_per_million_usd=0.28,
+        credential_mode="required",
+    )
+    cost, metadata = estimate_cost(
+        provider,
+        {"input_tokens": 10_000, "cached_input_tokens": 2_000, "output_tokens": 1_000},
+    )
+    assert cost == pytest.approx(0.0014056)
+    assert metadata["available"] is True
+    assert metadata["source"] == "provider_profile_snapshot"
 
 
 def test_template_cannot_control_provider_endpoint_or_secret() -> None:
@@ -103,6 +125,9 @@ def test_cache_fingerprint_tracks_schema_provider_and_connector_version() -> Non
                 default_model="m",
                 structured_output_mode="json_object",
                 default_temperature=0.5,
+                input_price_per_million_usd=1,
+                cached_input_price_per_million_usd=0.1,
+                output_price_per_million_usd=4,
                 credential_mode="required",
             ),
             **base,

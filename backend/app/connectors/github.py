@@ -7,6 +7,7 @@ import re
 import time
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -28,7 +29,7 @@ def parse_repository(value: str) -> tuple[str, str]:
 
 class GitHubConnector(BaseConnector):
     name = "github"
-    version = "2"
+    version = "4"
 
     async def execute(self, context: ConnectorContext) -> CellResult:
         started = time.perf_counter()
@@ -56,7 +57,7 @@ class GitHubConnector(BaseConnector):
         async with httpx.AsyncClient(
             headers=headers, timeout=settings.http_timeout_seconds, follow_redirects=False
         ) as client:
-            rate_metadata: dict[str, str | None] = {}
+            rate_metadata: dict[str, Any] = {}
             repo_data = await self._get(client, base, rate_metadata, etag_key="repository_etag")
             resource = str(context.column.config.get("resource", "snapshot"))
             if resource == "repository":
@@ -98,9 +99,9 @@ class GitHubConnector(BaseConnector):
             )
 
     async def _snapshot_parts(
-        self, client: httpx.AsyncClient, base: str, rate_metadata: dict[str, str | None]
+        self, client: httpx.AsyncClient, base: str, rate_metadata: dict[str, Any]
     ) -> tuple[str, list, dict, list, list]:
-        readme_response = await client.get(f"{base}/readme")
+        readme_response = await self._safe_get(client, f"{base}/readme")
         if readme_response.status_code == 404:
             readme = ""
         else:
@@ -108,15 +109,21 @@ class GitHubConnector(BaseConnector):
             self._raise(readme_response)
             encoded = readme_response.json().get("content", "")
             readme = base64.b64decode(encoded).decode("utf-8", errors="replace") if encoded else ""
-        releases = await self._get(client, f"{base}/releases?per_page=10", rate_metadata)
-        languages = await self._get(client, f"{base}/languages", rate_metadata)
-        issues = await self._get(
-            client, f"{base}/issues?state=all&sort=updated&per_page=30", rate_metadata
+        releases = await self._get_optional(
+            client, f"{base}/releases?per_page=10", rate_metadata, []
         )
-        pulls = await self._get(
+        languages = await self._get_optional(client, f"{base}/languages", rate_metadata, {})
+        issues = await self._get_optional(
+            client,
+            f"{base}/issues?state=all&sort=updated&per_page=30",
+            rate_metadata,
+            [],
+        )
+        pulls = await self._get_optional(
             client,
             f"{base}/pulls?state=all&sort=updated&direction=desc&per_page=30",
             rate_metadata,
+            [],
         )
         return readme[:100_000], releases, languages, issues, pulls
 
@@ -124,19 +131,57 @@ class GitHubConnector(BaseConnector):
         self,
         client: httpx.AsyncClient,
         url: str,
-        rate_metadata: dict[str, str | None],
+        rate_metadata: dict[str, Any],
         *,
         etag_key: str | None = None,
     ) -> Any:
-        response = await client.get(url)
+        response = await self._safe_get(client, url)
         self._capture_rate(response, rate_metadata, etag_key=etag_key)
         self._raise(response)
         return response.json()
 
+    async def _get_optional(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        rate_metadata: dict[str, Any],
+        default: Any,
+    ) -> Any:
+        response = await self._safe_get(client, url)
+        self._capture_rate(response, rate_metadata)
+        if response.status_code == 404:
+            unavailable = rate_metadata.setdefault("unavailable_resources", [])
+            unavailable.append(str(response.request.url))
+            return default
+        self._raise(response)
+        return response.json()
+
+    @staticmethod
+    async def _safe_get(client: httpx.AsyncClient, url: str) -> httpx.Response:
+        current = url
+        for _ in range(3):
+            response = await client.get(current)
+            if response.status_code not in {301, 302, 307, 308}:
+                return response
+            location = response.headers.get("location")
+            if not location:
+                return response
+            redirected = urljoin(str(response.request.url), location)
+            parsed = urlparse(redirected)
+            if (
+                parsed.scheme != "https"
+                or parsed.hostname != "api.github.com"
+                or parsed.username
+                or parsed.password
+            ):
+                raise PermissionError("GitHub API redirect target is not trusted")
+            current = redirected
+        raise RuntimeError("GitHub API returned too many redirects")
+
     @staticmethod
     def _capture_rate(
         response: httpx.Response,
-        target: dict[str, str | None],
+        target: dict[str, Any],
         *,
         etag_key: str | None = None,
     ) -> None:

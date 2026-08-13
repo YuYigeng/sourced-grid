@@ -477,6 +477,9 @@ class ResearchWorker:
                     default_model=provider.default_model,
                     structured_output_mode=provider.structured_output_mode,
                     default_temperature=provider.default_temperature,
+                    input_price_per_million_usd=provider.input_price_per_million_usd,
+                    cached_input_price_per_million_usd=provider.cached_input_price_per_million_usd,
+                    output_price_per_million_usd=provider.output_price_per_million_usd,
                     credential_mode=provider.credential_mode,
                 )
                 if provider.secret_name:

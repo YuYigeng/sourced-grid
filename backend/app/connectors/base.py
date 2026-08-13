@@ -26,6 +26,9 @@ class ProviderSnapshot:
     default_model: str
     structured_output_mode: str
     default_temperature: float
+    input_price_per_million_usd: float | None
+    cached_input_price_per_million_usd: float | None
+    output_price_per_million_usd: float | None
     credential_mode: str
 
 

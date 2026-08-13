@@ -130,6 +130,9 @@ function ProviderCard({
   const [model, setModel] = useState(provider.default_model);
   const [outputMode, setOutputMode] = useState(provider.structured_output_mode);
   const [temperature, setTemperature] = useState(provider.default_temperature);
+  const [inputPrice, setInputPrice] = useState(String(provider.input_price_per_million_usd ?? ""));
+  const [cachedInputPrice, setCachedInputPrice] = useState(String(provider.cached_input_price_per_million_usd ?? ""));
+  const [outputPrice, setOutputPrice] = useState(String(provider.output_price_per_million_usd ?? ""));
   const [credential, setCredential] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -146,6 +149,9 @@ function ProviderCard({
         default_model: model,
         structured_output_mode: outputMode,
         default_temperature: temperature,
+        input_price_per_million_usd: inputPrice === "" ? null : Number(inputPrice),
+        cached_input_price_per_million_usd: cachedInputPrice === "" ? null : Number(cachedInputPrice),
+        output_price_per_million_usd: outputPrice === "" ? null : Number(outputPrice),
       });
       if (provider.credential_mode === "required" && credential) {
         await api.saveProviderCredential(provider.id, credential);
@@ -183,6 +189,7 @@ function ProviderCard({
         <label>Default model<input value={model} onChange={(event) => setModel(event.target.value)} /></label>
         <label>Structured output<select value={outputMode} onChange={(event) => setOutputMode(event.target.value as StructuredOutputMode)}>{availableOutputModes.map((value) => <option key={value} value={value}>{outputModeLabels[value]}</option>)}</select></label>
         <label>Temperature<input type="number" min={0} max={2} step={0.1} value={temperature} onChange={(event) => setTemperature(Number(event.target.value))} /></label>
+        <div className="provider-pricing"><strong>Estimated USD per 1M tokens</strong><label>Input<input type="number" min={0} step="any" value={inputPrice} onChange={(event) => setInputPrice(event.target.value)} placeholder="Unknown" /></label><label>Cached input<input type="number" min={0} step="any" value={cachedInputPrice} onChange={(event) => setCachedInputPrice(event.target.value)} placeholder="Same as input" /></label><label>Output<input type="number" min={0} step="any" value={outputPrice} onChange={(event) => setOutputPrice(event.target.value)} placeholder="Unknown" /></label></div>
         {provider.credential_mode === "required" && <label>API key <span>{provider.configured ? "Configured · enter to replace" : "Required"}</span><input type="password" value={credential} onChange={(event) => setCredential(event.target.value)} placeholder="Stored encrypted; never returned" /></label>}
         <p className="provider-help">{outputMode === "json_schema" ? "Send the value schema to compatible providers and validate it again locally." : outputMode === "json_object" ? "Request JSON mode, then enforce the value schema locally." : "Do not send response_format; require the JSON envelope in the prompt and validate locally."}</p>
         {error && <p className="provider-error">{error}</p>}
@@ -221,7 +228,7 @@ export function SourcedGridApp() {
   const [providers, setProviders] = useState<ProviderProfile[]>([]);
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
   const [githubToken, setGithubToken] = useState("");
-  const [customProvider, setCustomProvider] = useState({ id: "", display_name: "", base_url: "", default_model: "", structured_output_mode: "json_object" as StructuredOutputMode, default_temperature: 0, credential_mode: "required" as "required" | "none", credential: "" });
+  const [customProvider, setCustomProvider] = useState({ id: "", display_name: "", base_url: "", default_model: "", structured_output_mode: "json_object" as StructuredOutputMode, default_temperature: 0, input_price_per_million_usd: "", cached_input_price_per_million_usd: "", output_price_per_million_usd: "", credential_mode: "required" as "required" | "none", credential: "" });
   const [cellHistory, setCellHistory] = useState<CellExecution[]>([]);
   const [forceRefresh, setForceRefresh] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -391,6 +398,9 @@ export function SourcedGridApp() {
       default_model: customProvider.default_model,
       structured_output_mode: customProvider.structured_output_mode,
       default_temperature: customProvider.default_temperature,
+      input_price_per_million_usd: customProvider.input_price_per_million_usd === "" ? null : Number(customProvider.input_price_per_million_usd),
+      cached_input_price_per_million_usd: customProvider.cached_input_price_per_million_usd === "" ? null : Number(customProvider.cached_input_price_per_million_usd),
+      output_price_per_million_usd: customProvider.output_price_per_million_usd === "" ? null : Number(customProvider.output_price_per_million_usd),
       credential_mode: customProvider.credential_mode,
       trusted: true,
     });
@@ -398,7 +408,7 @@ export function SourcedGridApp() {
       await api.saveProviderCredential(profile.id, customProvider.credential);
     }
     setProviders(await api.providers());
-    setCustomProvider({ id: "", display_name: "", base_url: "", default_model: "", structured_output_mode: "json_object", default_temperature: 0, credential_mode: "required", credential: "" });
+    setCustomProvider({ id: "", display_name: "", base_url: "", default_model: "", structured_output_mode: "json_object", default_temperature: 0, input_price_per_million_usd: "", cached_input_price_per_million_usd: "", output_price_per_million_usd: "", credential_mode: "required", credential: "" });
     setNotice("Provider profile trusted locally. Templates can reference it but cannot alter its endpoint.");
   }
 
@@ -662,6 +672,7 @@ export function SourcedGridApp() {
               <label>Default model<input value={customProvider.default_model} onChange={(event) => setCustomProvider((value) => ({ ...value, default_model: event.target.value }))} /></label>
               <label>Structured output<select value={customProvider.structured_output_mode} onChange={(event) => setCustomProvider((value) => ({ ...value, structured_output_mode: event.target.value as StructuredOutputMode }))}>{Object.entries(outputModeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
               <label>Temperature<input type="number" min={0} max={2} step={0.1} value={customProvider.default_temperature} onChange={(event) => setCustomProvider((value) => ({ ...value, default_temperature: Number(event.target.value) }))} /></label>
+              <div className="provider-pricing"><strong>Estimated USD per 1M tokens</strong><label>Input<input type="number" min={0} step="any" value={customProvider.input_price_per_million_usd} onChange={(event) => setCustomProvider((value) => ({ ...value, input_price_per_million_usd: event.target.value }))} placeholder="Unknown" /></label><label>Cached input<input type="number" min={0} step="any" value={customProvider.cached_input_price_per_million_usd} onChange={(event) => setCustomProvider((value) => ({ ...value, cached_input_price_per_million_usd: event.target.value }))} placeholder="Same as input" /></label><label>Output<input type="number" min={0} step="any" value={customProvider.output_price_per_million_usd} onChange={(event) => setCustomProvider((value) => ({ ...value, output_price_per_million_usd: event.target.value }))} placeholder="Unknown" /></label></div>
               <label>Credential mode<select value={customProvider.credential_mode} onChange={(event) => setCustomProvider((value) => ({ ...value, credential_mode: event.target.value as "required" | "none" }))}><option value="required">API key (HTTPS public only)</option><option value="none">No credential (local endpoint allowed)</option></select></label>
               {customProvider.credential_mode === "required" && <label>API key<input type="password" value={customProvider.credential} onChange={(event) => setCustomProvider((value) => ({ ...value, credential: event.target.value }))} /></label>}
               <button className="secondary-button" onClick={() => void createCustomProvider()}>Confirm trust & add</button>
@@ -677,6 +688,7 @@ export function SourcedGridApp() {
 
 function EvidencePanel({ cell, column, history, runId, onEditInput, onDeleteRow, onCloneRow }: { cell: GridCell; column: ColumnDefinition | null; history: CellExecution[]; runId?: string; onEditInput: (value: string) => Promise<void>; onDeleteRow: () => Promise<void>; onCloneRow: () => Promise<void> }) {
   const receipt: Provenance | null | undefined = cell.provenance;
+  const costEstimate = receipt?.metadata.cost_estimate as { available?: boolean } | undefined;
   const [draft, setDraft] = useState(String(cell.value ?? ""));
   return (
     <div className="evidence-content">
@@ -701,7 +713,7 @@ function EvidencePanel({ cell, column, history, runId, onEditInput, onDeleteRow,
           <div><dt>Connector</dt><dd>{receipt?.connector ?? column?.kind ?? "input"}</dd></div>
           <div><dt>Duration</dt><dd>{receipt ? `${receipt.duration_ms.toLocaleString()} ms` : "—"}</dd></div>
           <div><dt>Model</dt><dd>{receipt?.model ?? "Deterministic"}</dd></div>
-          <div><dt>Cost</dt><dd>${receipt?.cost_usd.toFixed(4) ?? "0.0000"}</dd></div>
+          <div><dt>Estimated cost</dt><dd>{costEstimate?.available === false ? "Pricing not configured" : `$${receipt?.cost_usd.toFixed(4) ?? "0.0000"}`}</dd></div>
           <div><dt>Input tokens</dt><dd>{receipt?.input_tokens.toLocaleString() ?? "0"}</dd></div>
           <div><dt>Output tokens</dt><dd>{receipt?.output_tokens.toLocaleString() ?? "0"}</dd></div>
         </dl>

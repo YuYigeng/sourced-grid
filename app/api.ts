@@ -120,9 +120,9 @@ export const api = {
     body: JSON.stringify({ value }),
   }),
   providers: () => request<ProviderProfile[]>("/v1/providers"),
-  createProvider: (profile: { id: string; display_name: string; base_url: string; default_model: string; structured_output_mode: StructuredOutputMode; default_temperature: number; credential_mode: "required" | "none"; trusted: true }) =>
+  createProvider: (profile: { id: string; display_name: string; base_url: string; default_model: string; structured_output_mode: StructuredOutputMode; default_temperature: number; input_price_per_million_usd: number | null; cached_input_price_per_million_usd: number | null; output_price_per_million_usd: number | null; credential_mode: "required" | "none"; trusted: true }) =>
     request<ProviderProfile>("/v1/providers", { method: "POST", body: JSON.stringify(profile) }),
-  patchProvider: (providerId: string, patch: { display_name?: string; base_url?: string; default_model?: string; structured_output_mode?: StructuredOutputMode; default_temperature?: number; credential_mode?: "required" | "none" }) =>
+  patchProvider: (providerId: string, patch: { display_name?: string; base_url?: string; default_model?: string; structured_output_mode?: StructuredOutputMode; default_temperature?: number; input_price_per_million_usd?: number | null; cached_input_price_per_million_usd?: number | null; output_price_per_million_usd?: number | null; credential_mode?: "required" | "none" }) =>
     request<ProviderProfile>(`/v1/providers/${providerId}`, {
       method: "PATCH",
       body: JSON.stringify(patch),

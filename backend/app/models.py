@@ -232,6 +232,11 @@ class ProviderProfile(Base, TimestampMixin):
     default_model: Mapped[str] = mapped_column(String(180))
     structured_output_mode: Mapped[str] = mapped_column(String(30), default="json_schema")
     default_temperature: Mapped[float] = mapped_column(Float, default=0.0)
+    input_price_per_million_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cached_input_price_per_million_usd: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    output_price_per_million_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     credential_mode: Mapped[str] = mapped_column(String(30), default="required")
     secret_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     trusted: Mapped[bool] = mapped_column(Boolean, default=False)

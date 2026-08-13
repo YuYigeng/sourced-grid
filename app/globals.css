@@ -362,6 +362,9 @@ button:disabled { cursor: wait; opacity: 0.58; }
 .provider-card-body input:disabled { color: var(--faint); cursor: not-allowed; }
 .provider-help { grid-column: 1 / -1; margin: 10px 0 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
 .provider-error { grid-column: 1 / -1; margin: 8px 0 0; color: var(--red); font-size: 9px; }
+.provider-pricing { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 11px; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: #fff; }
+.provider-pricing > strong { grid-column: 1 / -1; color: var(--muted); font-size: 8px; text-transform: uppercase; }
+.provider-pricing label { margin-top: 0; }
 .provider-card-actions { display: flex; grid-column: 1 / -1; justify-content: flex-end; gap: 7px; margin-top: 10px; }
 .danger-button { border: 1px solid #e7b5b0; border-radius: 7px; background: #fff7f6; color: var(--red); font-size: 9px; cursor: pointer; }
 .provider-create { margin-top: 14px; padding: 10px; border: 1px solid var(--line); border-radius: 9px; }

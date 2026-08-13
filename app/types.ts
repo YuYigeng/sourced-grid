@@ -139,6 +139,9 @@ export interface ProviderProfile {
   default_model: string;
   structured_output_mode: StructuredOutputMode;
   default_temperature: number;
+  input_price_per_million_usd: number | null;
+  cached_input_price_per_million_usd: number | null;
+  output_price_per_million_usd: number | null;
   credential_mode: "required" | "none";
   trusted: boolean;
   builtin: boolean;

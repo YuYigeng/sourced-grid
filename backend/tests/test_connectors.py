@@ -35,6 +35,52 @@ def test_github_errors_are_classified() -> None:
 
 
 @pytest.mark.asyncio
+async def test_github_follows_only_same_origin_api_redirects() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/repos/old/name":
+            return httpx.Response(301, headers={"location": "/repositories/123"})
+        return httpx.Response(200, json={"full_name": "new/name"})
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), follow_redirects=False
+    ) as client:
+        response = await GitHubConnector._safe_get(
+            client, "https://api.github.com/repos/old/name"
+        )
+        assert response.json()["full_name"] == "new/name"
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                301, headers={"location": "https://attacker.invalid/token"}
+            )
+        ),
+        follow_redirects=False,
+    ) as client:
+        with pytest.raises(PermissionError, match="not trusted"):
+            await GitHubConnector._safe_get(client, "https://api.github.com/repos/old/name")
+
+
+@pytest.mark.asyncio
+async def test_github_optional_resources_can_be_unavailable() -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(404)),
+        follow_redirects=False,
+    ) as client:
+        metadata: dict = {}
+        value = await GitHubConnector()._get_optional(
+            client,
+            "https://api.github.com/repos/torvalds/linux/pulls",
+            metadata,
+            [],
+        )
+    assert value == []
+    assert metadata["unavailable_resources"] == [
+        "https://api.github.com/repos/torvalds/linux/pulls"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_http_connector_blocks_loopback() -> None:
     with pytest.raises(ValueError, match="blocked"):
         await validate_public_url("http://127.0.0.1/internal")

@@ -20,6 +20,7 @@ The first included workflow, **GitHub Repository Radar**, compares repository he
 - Deterministic maintenance score and activity fields that work without an LLM key.
 - Presets for Anthropic, OpenAI, DeepSeek, Alibaba Cloud Qwen, Zhipu GLM, MiniMax, SiliconFlow, and local Ollama, plus custom OpenAI-compatible endpoints.
 - Provider-aware output modes (`json_schema`, `json_object`, or prompt-only) with strict local JSON Schema validation for every LLM result.
+- Editable Provider pricing snapshots for input, cached input, and output tokens; receipts preserve the rates used for each estimate.
 - Immutable `CellExecution` history and execution-to-execution lineage; old runs remain exportable.
 - SQLite WAL queue with heartbeat leases, ownership checks, atomic budget reservation, reset-aware GitHub scheduling, cancellation protection, and crash recovery.
 - Content-addressed raw artifacts and source receipts for every successful generated cell.
