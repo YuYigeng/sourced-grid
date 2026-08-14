@@ -29,5 +29,6 @@ This record captures the checks performed against the protected `main` release c
 - Engine digest: `sha256:1e10fe453cf3f75090071d08345705d45441bb990cc00c5b1874050cf6ff14c7`.
 - Web digest: `sha256:cf95046a3a070f2515cc3406abbb0830b67f9176b73145d072847b94c2758f2b`.
 - The attached `checksums.txt` validates both digest files, and `sourced-grid-source.spdx.json` is a valid SPDX JSON document.
+- A post-release installation pulled the public GHCR images anonymously into a new Compose project without a local build. The exact published digests reached healthy API, Web, and Worker services with a migrated empty volume in 8.12 seconds; Web returned HTTP 200, all 27 public GitHub/Transform tasks succeeded, the six unconfigured hosted-provider tasks failed in isolation, and run-scoped JSON export returned HTTP 200. An immediate replay reused all 30 eligible executions. The temporary volume was then deleted and the existing encrypted workspace was restored intact.
 
 The clean acceptance volumes contained only synthetic credentials or no credentials and temporary results. They were deleted after the scans; the user's existing encrypted data volume was rebuilt with the patched RC images, restarted, and verified intact.

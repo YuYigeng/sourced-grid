@@ -20,8 +20,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -32,7 +32,7 @@ jobs:
           images: ghcr.io/${{ github.repository_owner }}/sourced-grid-${{ matrix.image.name }}
           tags: type=ref,event=tag
       - id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.image.dockerfile }}
@@ -43,7 +43,7 @@ jobs:
           provenance: mode=max
           sbom: true
       - run: echo "${{ matrix.image.name }} ${{ steps.build.outputs.digest }}" > "${{ matrix.image.name }}-digest.txt"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.image.name }}-digest
           path: ${{ matrix.image.name }}-digest.txt
