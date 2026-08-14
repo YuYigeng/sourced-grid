@@ -15,11 +15,29 @@ class TemplateValidationError(ValueError):
 def parse_template(document: str) -> ResearchTemplate:
     try:
         raw = yaml.safe_load(document)
+        migrate_legacy_provider_refs(raw)
         template = ResearchTemplate.model_validate(raw)
     except Exception as exc:
         raise TemplateValidationError(str(exc)) from exc
     validate_dag(template)
     return template
+
+
+def migrate_legacy_provider_refs(raw: object) -> None:
+    if not isinstance(raw, dict) or not isinstance(raw.get("columns"), list):
+        return
+    for column in raw["columns"]:
+        if not isinstance(column, dict) or column.get("kind") != "llm":
+            continue
+        config = column.setdefault("config", {})
+        if not isinstance(config, dict) or "provider" not in config:
+            continue
+        provider = config.pop("provider")
+        if provider not in {"anthropic", "openai"}:
+            raise TemplateValidationError(
+                "Legacy provider values must be anthropic or openai; create a trusted local profile for custom providers"
+            )
+        config.setdefault("provider_ref", provider)
 
 
 def load_template(path: Path) -> tuple[ResearchTemplate, str]:
@@ -33,6 +51,14 @@ def validate_dag(template: ResearchTemplate) -> list[str]:
         raise TemplateValidationError("Template contains duplicate column keys")
     known = set(keys)
     for column in template.columns:
+        if column.kind == "llm":
+            forbidden = {"base_url", "secret_name", "api_key"} & set(column.config)
+            if forbidden:
+                raise TemplateValidationError(
+                    f"LLM column {column.key} contains forbidden provider settings: {sorted(forbidden)}"
+                )
+            if "provider_ref" not in column.config:
+                raise TemplateValidationError(f"LLM column {column.key} must reference a trusted provider_ref")
         missing = set(column.depends_on) - known
         if missing:
             raise TemplateValidationError(

@@ -7,17 +7,17 @@ dev-web:
 	npm run dev
 
 dev-api:
-	SOURCEDGRID_DATA_DIR=./data .venv/bin/uvicorn --app-dir backend app.main:app --reload --port 8000
+	SOURCEDGRID_DATA_DIR=./data backend/.venv/bin/uvicorn --app-dir backend app.main:app --reload --port 8000
 
 dev-worker:
-	cd backend && SOURCEDGRID_DATA_DIR=../data ../.venv/bin/python -m app.worker
+	cd backend && SOURCEDGRID_DATA_DIR=../data .venv/bin/python -m app.worker
 
 test:
-	.venv/bin/pytest backend/tests
+	backend/.venv/bin/python -m pytest backend/tests
 	npm run build
 
 lint:
-	.venv/bin/ruff check backend
+	backend/.venv/bin/ruff check backend
 	npm run lint
 
 build:

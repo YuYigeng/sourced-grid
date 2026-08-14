@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { parse } from "csv-parse/browser/esm/sync";
 import { DataGrid, type Column, type RenderCellProps } from "react-data-grid";
 import {
   Activity,
@@ -9,15 +10,14 @@ import {
   Check,
   ChevronDown,
   CircleDollarSign,
-  CircleHelp,
   Database,
+  Copy,
   FileJson,
   FileSpreadsheet,
   Github,
   KeyRound,
   Link2,
   LoaderCircle,
-  MoreHorizontal,
   Pause,
   Play,
   Plus,
@@ -28,6 +28,7 @@ import {
   Sparkles,
   Square,
   Table2,
+  Trash2,
   Upload,
   X,
   Zap,
@@ -35,13 +36,19 @@ import {
 import "react-data-grid/lib/styles.css";
 import { api } from "./api";
 import { sampleGrid } from "./sample-data";
+import { SchemaEditor } from "./schema-editor";
 import type {
+  CellExecution,
   ColumnDefinition,
   GridCell,
   GridDetail,
+  GridSummary,
   Provenance,
+  ProviderProfile,
   RunSummary,
   SecretSummary,
+  StructuredOutputMode,
+  TemplateSummary,
 } from "./types";
 
 type DisplayRow = Record<string, unknown> & {
@@ -52,7 +59,9 @@ type DisplayRow = Record<string, unknown> & {
 function formatValue(value: unknown, key: string) {
   if (value === null || value === undefined || value === "") return "—";
   if (key === "stars" && typeof value === "number") return value.toLocaleString();
-  if (key === "health_score") return `${value}/100`;
+  if (key === "health_score" && typeof value === "object" && value) {
+    return `${String((value as { score?: unknown }).score ?? "—")}/100`;
+  }
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
@@ -93,7 +102,7 @@ function GridValue({ cell, columnKey }: { cell?: GridCell; columnKey: string }) 
     return <span className="numeric-cell">★ {formatValue(value, columnKey)}</span>;
   }
   if (columnKey === "health_score" && value !== null && value !== undefined) {
-    const score = Number(value);
+    const score = Number(typeof value === "object" && value ? (value as { score?: unknown }).score : value);
     return (
       <span className={`score-pill ${score >= 90 ? "score-high" : "score-medium"}`}>
         {score}
@@ -104,6 +113,95 @@ function GridValue({ cell, columnKey }: { cell?: GridCell; columnKey: string }) 
   return <span>{formatValue(value, columnKey)}</span>;
 }
 
+const outputModeLabels: Record<StructuredOutputMode, string> = {
+  json_schema: "Strict JSON Schema",
+  json_object: "JSON object",
+  prompt_only: "Prompt + local validation",
+};
+
+function ProviderCard({
+  provider,
+  onChanged,
+}: {
+  provider: ProviderProfile;
+  onChanged: (message: string) => Promise<void>;
+}) {
+  const [baseUrl, setBaseUrl] = useState(provider.base_url);
+  const [model, setModel] = useState(provider.default_model);
+  const [outputMode, setOutputMode] = useState(provider.structured_output_mode);
+  const [temperature, setTemperature] = useState(provider.default_temperature);
+  const [inputPrice, setInputPrice] = useState(String(provider.input_price_per_million_usd ?? ""));
+  const [cachedInputPrice, setCachedInputPrice] = useState(String(provider.cached_input_price_per_million_usd ?? ""));
+  const [outputPrice, setOutputPrice] = useState(String(provider.output_price_per_million_usd ?? ""));
+  const [credential, setCredential] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const availableOutputModes = provider.provider_type === "anthropic"
+    ? (["prompt_only"] as StructuredOutputMode[])
+    : (Object.keys(outputModeLabels) as StructuredOutputMode[]);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.patchProvider(provider.id, {
+        ...(!provider.builtin ? { base_url: baseUrl } : {}),
+        default_model: model,
+        structured_output_mode: outputMode,
+        default_temperature: temperature,
+        input_price_per_million_usd: inputPrice === "" ? null : Number(inputPrice),
+        cached_input_price_per_million_usd: cachedInputPrice === "" ? null : Number(cachedInputPrice),
+        output_price_per_million_usd: outputPrice === "" ? null : Number(outputPrice),
+      });
+      if (provider.credential_mode === "required" && credential) {
+        await api.saveProviderCredential(provider.id, credential);
+      }
+      setCredential("");
+      await onChanged(`${provider.display_name} configuration saved locally.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Provider save failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm(`Remove ${provider.display_name}?`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteProvider(provider.id);
+      await onChanged(`${provider.display_name} removed.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Provider removal failed");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <details className="provider-card">
+      <summary>
+        <span><strong>{provider.display_name}</strong><small>{provider.default_model}</small></span>
+        <i className={provider.configured || provider.credential_mode === "none" ? "ready" : "needs-key"}>{provider.configured || provider.credential_mode === "none" ? "Ready" : "Needs key"}</i>
+      </summary>
+      <div className="provider-card-body">
+        <label>API endpoint<input value={baseUrl} disabled={provider.builtin} onChange={(event) => setBaseUrl(event.target.value)} /></label>
+        <label>Default model<input value={model} onChange={(event) => setModel(event.target.value)} /></label>
+        <label>Structured output<select value={outputMode} onChange={(event) => setOutputMode(event.target.value as StructuredOutputMode)}>{availableOutputModes.map((value) => <option key={value} value={value}>{outputModeLabels[value]}</option>)}</select></label>
+        <label>Temperature<input type="number" min={0} max={2} step={0.1} value={temperature} onChange={(event) => setTemperature(Number(event.target.value))} /></label>
+        <div className="provider-pricing"><strong>Estimated USD per 1M tokens</strong><label>Input<input type="number" min={0} step="any" value={inputPrice} onChange={(event) => setInputPrice(event.target.value)} placeholder="Unknown" /></label><label>Cached input<input type="number" min={0} step="any" value={cachedInputPrice} onChange={(event) => setCachedInputPrice(event.target.value)} placeholder="Same as input" /></label><label>Output<input type="number" min={0} step="any" value={outputPrice} onChange={(event) => setOutputPrice(event.target.value)} placeholder="Unknown" /></label></div>
+        {provider.credential_mode === "required" && <label>API key <span>{provider.configured ? "Configured · enter to replace" : "Required"}</span><input type="password" value={credential} onChange={(event) => setCredential(event.target.value)} placeholder="Stored encrypted; never returned" /></label>}
+        <p className="provider-help">{outputMode === "json_schema" ? "Send the value schema to compatible providers and validate it again locally." : outputMode === "json_object" ? "Request JSON mode, then enforce the value schema locally." : "Do not send response_format; require the JSON envelope in the prompt and validate locally."}</p>
+        {error && <p className="provider-error">{error}</p>}
+        <div className="provider-card-actions">
+          {!provider.builtin && <button className="danger-button" disabled={busy} onClick={() => void remove()}>Remove</button>}
+          <button className="secondary-button" disabled={busy || !model} onClick={() => void save()}>{busy ? "Saving…" : "Save provider"}</button>
+        </div>
+      </div>
+    </details>
+  );
+}
+
 export function SourcedGridApp() {
   const [grid, setGrid] = useState<GridDetail>(sampleGrid);
   const [selectedCell, setSelectedCell] = useState<GridCell | null>(
@@ -112,15 +210,28 @@ export function SourcedGridApp() {
   const [selectedColumn, setSelectedColumn] = useState<ColumnDefinition | null>(
     sampleGrid.columns[7],
   );
+  const [selectedRowId, setSelectedRowId] = useState(sampleGrid.rows[0].id);
   const [backendOnline, setBackendOnline] = useState(false);
+  const [gridSummaries, setGridSummaries] = useState<GridSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [run, setRun] = useState<RunSummary | null>(null);
+  const [runs, setRuns] = useState<RunSummary[]>([]);
+  const [view, setView] = useState<"grid" | "runs">("grid");
   const [importOpen, setImportOpen] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [schemaOpen, setSchemaOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importText, setImportText] = useState("");
+  const [importPreview, setImportPreview] = useState<Record<string, unknown>[]>([]);
+  const [duplicateStrategy, setDuplicateStrategy] = useState<"skip" | "replace" | "allow">("skip");
   const [secrets, setSecrets] = useState<SecretSummary[]>([]);
+  const [providers, setProviders] = useState<ProviderProfile[]>([]);
+  const [templates, setTemplates] = useState<TemplateSummary[]>([]);
   const [githubToken, setGithubToken] = useState("");
-  const [providerKey, setProviderKey] = useState("");
+  const [customProvider, setCustomProvider] = useState({ id: "", display_name: "", base_url: "", default_model: "", structured_output_mode: "json_object" as StructuredOutputMode, default_temperature: 0, input_price_per_million_usd: "", cached_input_price_per_million_usd: "", output_price_per_million_usd: "", credential_mode: "required" as "required" | "none", credential: "" });
+  const [cellHistory, setCellHistory] = useState<CellExecution[]>([]);
+  const [forceRefresh, setForceRefresh] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
 
   const loadGrid = useCallback(async () => {
@@ -130,7 +241,11 @@ export function SourcedGridApp() {
       const grids = await api.grids();
       const active = grids[0] ?? (await api.createRadar());
       setGrid(await api.grid(active.id));
+      setGridSummaries(await api.grids());
       setSecrets(await api.secrets());
+      setProviders(await api.providers());
+      setTemplates(await api.templates());
+      setRuns(await api.runs(active.id));
     } catch {
       setBackendOnline(false);
       setGrid(sampleGrid);
@@ -145,19 +260,26 @@ export function SourcedGridApp() {
   }, [loadGrid]);
 
   useEffect(() => {
-    if (!run || !["queued", "running", "paused"].includes(run.status)) return;
-    const timer = window.setInterval(async () => {
+    if (!run || !["queued", "running", "paused", "cancelling"].includes(run.status)) return;
+    const events = new EventSource(api.runEventsUrl(run.id));
+    const refresh = async () => {
       try {
         const next = await api.runStatus(run.id);
         setRun(next);
-        if (["completed", "completed_with_errors", "failed", "cancelled"].includes(next.status)) {
-          setGrid(await api.grid(grid.id));
-        }
+        setGrid(await api.grid(grid.id));
+        setRuns(await api.runs(grid.id));
+        if (["completed", "completed_with_errors", "failed", "cancelled"].includes(next.status)) events.close();
       } catch {
-        window.clearInterval(timer);
+        events.close();
       }
-    }, 1200);
-    return () => window.clearInterval(timer);
+    };
+    events.addEventListener("task", () => void refresh());
+    events.addEventListener("run", () => void refresh());
+    events.addEventListener("rate_limit", () => void refresh());
+    events.onerror = () => {
+      // Native EventSource reconnects and sends Last-Event-ID automatically.
+    };
+    return () => events.close();
   }, [grid.id, run]);
 
   const displayRows = useMemo<DisplayRow[]>(
@@ -173,8 +295,8 @@ export function SourcedGridApp() {
           Object.entries(cells).map(([key, cell]) => [key, cell.value]),
         );
         return { _rowId: row.id, _cells: cells, ...values };
-      }),
-    [grid],
+      }).filter((row) => !searchQuery || JSON.stringify(row).toLowerCase().includes(searchQuery.toLowerCase())),
+    [grid, searchQuery],
   );
 
   const columns = useMemo<Column<DisplayRow>[]>(
@@ -200,7 +322,6 @@ export function SourcedGridApp() {
               {column.kind === "llm" ? <Sparkles size={12} /> : column.kind === "github" ? <Github size={12} /> : <Database size={12} />}
             </span>
             {column.label}
-            <ChevronDown size={13} />
           </span>
         ),
         cellClass: (row: DisplayRow) => cellClass(row._cells[column.key]),
@@ -208,14 +329,6 @@ export function SourcedGridApp() {
           <GridValue cell={row._cells[column.key]} columnKey={column.key} />
         ),
       })),
-      {
-        key: "_add",
-        name: "",
-        width: 48,
-        minWidth: 48,
-        renderHeaderCell: () => <Plus size={15} aria-label="Add column" />,
-        renderCell: () => null,
-      },
     ],
     [grid.columns],
   );
@@ -226,7 +339,7 @@ export function SourcedGridApp() {
       return;
     }
     try {
-      const next = await api.run(grid.id, 2);
+      const next = await api.run(grid.id, 2, forceRefresh);
       setRun(next);
       setNotice("Research run started. Every completed cell will keep its source receipt.");
       setGrid(await api.grid(grid.id));
@@ -236,6 +349,19 @@ export function SourcedGridApp() {
   }
 
   async function submitImport() {
+    if (importPreview.length) {
+      if (!backendOnline) return;
+      const input = grid.columns.find((column) => column.kind === "input");
+      if (!input) return;
+      const firstHeader = Object.keys(importPreview[0] ?? {})[0];
+      const mapped = importPreview.map((row) => ({ [input.key]: row[input.key] ?? row[firstHeader] }));
+      const report = await api.importMappedRows(grid.id, mapped, duplicateStrategy);
+      setNotice(`Import complete: ${report.counts.imported ?? 0} imported, ${report.counts.skipped ?? 0} skipped, ${report.counts.error ?? 0} errors.`);
+      setGrid(await api.grid(grid.id));
+      setImportPreview([]);
+      setImportOpen(false);
+      return;
+    }
     const values = importText
       .split(/[\n,]/)
       .map((value) => value.trim())
@@ -257,12 +383,76 @@ export function SourcedGridApp() {
       return;
     }
     if (githubToken) await api.saveSecret("github_token", githubToken);
-    if (providerKey) await api.saveSecret("anthropic_api_key", providerKey);
     setSecrets(await api.secrets());
     setGithubToken("");
-    setProviderKey("");
     setSettingsOpen(false);
-    setNotice("Credentials encrypted locally. Plaintext values are never returned by the API.");
+    setNotice("GitHub credential encrypted locally. Plaintext values are never returned by the API.");
+  }
+
+  async function createCustomProvider() {
+    if (!customProvider.id || !customProvider.base_url || !customProvider.default_model) return;
+    const profile = await api.createProvider({
+      id: customProvider.id,
+      display_name: customProvider.display_name || customProvider.id,
+      base_url: customProvider.base_url,
+      default_model: customProvider.default_model,
+      structured_output_mode: customProvider.structured_output_mode,
+      default_temperature: customProvider.default_temperature,
+      input_price_per_million_usd: customProvider.input_price_per_million_usd === "" ? null : Number(customProvider.input_price_per_million_usd),
+      cached_input_price_per_million_usd: customProvider.cached_input_price_per_million_usd === "" ? null : Number(customProvider.cached_input_price_per_million_usd),
+      output_price_per_million_usd: customProvider.output_price_per_million_usd === "" ? null : Number(customProvider.output_price_per_million_usd),
+      credential_mode: customProvider.credential_mode,
+      trusted: true,
+    });
+    if (profile.credential_mode === "required" && customProvider.credential) {
+      await api.saveProviderCredential(profile.id, customProvider.credential);
+    }
+    setProviders(await api.providers());
+    setCustomProvider({ id: "", display_name: "", base_url: "", default_model: "", structured_output_mode: "json_object", default_temperature: 0, input_price_per_million_usd: "", cached_input_price_per_million_usd: "", output_price_per_million_usd: "", credential_mode: "required", credential: "" });
+    setNotice("Provider profile trusted locally. Templates can reference it but cannot alter its endpoint.");
+  }
+
+  async function refreshProviders(message: string) {
+    setProviders(await api.providers());
+    setNotice(message);
+  }
+
+  async function selectGrid(id: string) {
+    const next = await api.grid(id);
+    setGrid(next);
+    const history = await api.runs(id);
+    setRuns(history);
+    setRun(history.find((item) => ["queued", "running", "paused", "cancelling"].includes(item.status)) ?? history[0] ?? null);
+    setSelectedCell(null);
+  }
+
+  async function chooseTemplate(slug: string) {
+    const next = await api.createFromTemplate(slug);
+    setGrid(next);
+    setGridSummaries(await api.grids());
+    setRuns([]);
+    setRun(null);
+    setTemplateOpen(false);
+  }
+
+  async function loadHistory(cell: GridCell) {
+    if (!backendOnline) return;
+    setCellHistory(await api.cellHistory(cell.id));
+  }
+
+  function parseCsvFile(file: File | undefined) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const rows = parse(String(reader.result ?? ""), { columns: true, skip_empty_lines: true, relax_column_count: true }) as Record<string, unknown>[];
+        setImportPreview(rows.slice(0, 1000));
+        setNotice(`Parsed ${Math.min(rows.length, 1000)} CSV rows. Confirm mapping in the import dialog.`);
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : "CSV parsing failed");
+      }
+    };
+    reader.readAsText(file);
   }
 
   function selectCell(row: DisplayRow, columnKey: string) {
@@ -271,10 +461,32 @@ export function SourcedGridApp() {
     if (!column || !cell) return;
     setSelectedColumn(column);
     setSelectedCell(cell);
+    setSelectedRowId(row._rowId);
+    void loadHistory(cell);
+  }
+
+  async function editSelectedInput(value: string) {
+    if (!selectedCell || !selectedColumn || !selectedRowId) return;
+    await api.patchInputCell(grid.id, selectedRowId, selectedColumn.id, value);
+    setGrid(await api.grid(grid.id));
+    setNotice("Input saved. Downstream cells are now stale until the next run.");
+  }
+
+  async function deleteSelectedRow() {
+    if (!selectedRowId || !window.confirm("Delete this row? Existing run snapshots remain exportable.")) return;
+    await api.deleteRow(grid.id, selectedRowId);
+    setGrid(await api.grid(grid.id));
+    setSelectedCell(null);
+  }
+
+  async function cloneSelectedRow() {
+    if (!selectedRowId) return;
+    setGrid(await api.cloneRow(grid.id, selectedRowId));
+    setNotice("Row duplicated. Generated cells start empty and keep independent history.");
   }
 
   const progress = run?.total_tasks
-    ? Math.round(((run.completed_tasks + run.failed_tasks) / run.total_tasks) * 100)
+    ? Math.round(((run.completed_tasks + run.failed_tasks + run.skipped_tasks + run.cancelled_tasks) / run.total_tasks) * 100)
     : 100;
   const isRunning = run && ["queued", "running"].includes(run.status);
 
@@ -294,7 +506,7 @@ export function SourcedGridApp() {
         </div>
         <div className="topbar-search">
           <Search size={15} />
-          <input aria-label="Search grids" placeholder="Search grids, rows, sources…" />
+          <input aria-label="Search rows" placeholder="Search rows and values…" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
           <kbd>⌘ K</kbd>
         </div>
         <div className="topbar-actions">
@@ -302,29 +514,28 @@ export function SourcedGridApp() {
             <StatusDot status={backendOnline ? "succeeded" : "empty"} />
             {backendOnline ? "Local engine" : "Demo data"}
           </span>
-          <button className="icon-button" aria-label="Help"><CircleHelp size={17} /></button>
-          <button className="avatar" aria-label="Local workspace">SG</button>
+          <span className="avatar" aria-label="Local workspace">SG</span>
         </div>
       </header>
 
       <div className="workspace-shell">
         <aside className="sidebar">
-          <button className="new-grid-button" disabled={loading} onClick={() => setImportOpen(true)}>
+          <button className="new-grid-button" disabled={loading || !backendOnline} onClick={() => setTemplateOpen(true)}>
             <Plus size={16} /> New research grid
           </button>
           <nav aria-label="Workspace navigation">
             <p className="nav-label">Workspace</p>
-            <button className="nav-item active"><Table2 size={16} /> Research grids <span>1</span></button>
-            <button className="nav-item"><Activity size={16} /> Runs <span>{run ? 1 : 0}</span></button>
-            <button className="nav-item"><ShieldCheck size={16} /> Sources</button>
+            <button className={`nav-item ${view === "grid" ? "active" : ""}`} onClick={() => setView("grid")}><Table2 size={16} /> Research grids <span>{gridSummaries.length || 1}</span></button>
+            <button className={`nav-item ${view === "runs" ? "active" : ""}`} onClick={() => setView("runs")}><Activity size={16} /> Runs <span>{runs.length}</span></button>
             <p className="nav-label second">Templates</p>
-            <button className="nav-item template-active"><Github size={16} /> Repository Radar</button>
-            <button className="nav-item"><BookOpen size={16} /> Research library</button>
+            {templates.map((template) => <button key={template.slug} className="nav-item template-active" onClick={() => void chooseTemplate(template.slug)}>{template.slug.includes("github") ? <Github size={16} /> : <BookOpen size={16} />}{template.name}</button>)}
+            <p className="nav-label second">Grids</p>
+            {gridSummaries.map((item) => <button key={item.id} className={`nav-item ${item.id === grid.id ? "active" : ""}`} onClick={() => void selectGrid(item.id)}><Table2 size={16} /> {item.name}<span>{item.row_count}</span></button>)}
           </nav>
           <div className="sidebar-bottom">
             <div className="usage-card">
               <div><CircleDollarSign size={15} /><span>Run budget</span></div>
-              <strong>${run?.spent_usd.toFixed(3) ?? "0.000"} <span>/ ${run?.budget_usd.toFixed(2) ?? "2.00"}</span></strong>
+              <strong>${run?.spent_usd.toFixed(3) ?? "0.000"} <span>+ ${run?.reserved_usd.toFixed(3) ?? "0.000"} reserved / ${run?.budget_usd.toFixed(2) ?? "2.00"}</span></strong>
               <div className="usage-track"><span style={{ width: `${Math.min(100, ((run?.spent_usd ?? 0) / (run?.budget_usd || 2)) * 100)}%` }} /></div>
             </div>
             <button className="nav-item" disabled={loading} onClick={() => setSettingsOpen(true)}><Settings size={16} /> Settings</button>
@@ -338,7 +549,6 @@ export function SourcedGridApp() {
               <div className="title-line">
                 <h1>{grid.name}</h1>
                 <span className="template-badge"><Zap size={12} /> Template</span>
-                <button className="icon-button"><MoreHorizontal size={17} /></button>
               </div>
               <p>{grid.description}</p>
             </div>
@@ -350,6 +560,7 @@ export function SourcedGridApp() {
                   <a href={backendOnline ? api.exportUrl(grid.id, "json") : "#"}><FileJson size={14} /> JSON + receipts</a>
                 </div>
               </div>
+              <button className="secondary-button" disabled={loading || !backendOnline} onClick={() => setSchemaOpen(true)}><Link2 size={15} /> Edit DAG</button>
               <button className="secondary-button" disabled={loading} onClick={() => setImportOpen(true)}><Upload size={15} /> Import</button>
               {isRunning ? (
                 <button className="run-button" onClick={async () => setRun(await api.pauseRun(run.id))}><Pause size={15} /> Pause</button>
@@ -363,8 +574,8 @@ export function SourcedGridApp() {
 
           <div className="view-toolbar">
             <div className="view-tabs">
-              <button className="active"><Table2 size={14} /> Grid</button>
-              <button><Activity size={14} /> Run log</button>
+              <button className={view === "grid" ? "active" : ""} onClick={() => setView("grid")}><Table2 size={14} /> Grid</button>
+              <button className={view === "runs" ? "active" : ""} onClick={() => setView("runs")}><Activity size={14} /> Run log</button>
             </div>
             <div className="toolbar-right">
               {run && (
@@ -375,11 +586,11 @@ export function SourcedGridApp() {
                   {run.failed_tasks > 0 && <button onClick={async () => setRun(await api.retryFailed(run.id))}><RefreshCw size={12} /> Retry {run.failed_tasks}</button>}
                 </div>
               )}
-              <button><Link2 size={14} /> Share template</button>
+              <label className="force-refresh"><input type="checkbox" checked={forceRefresh} onChange={(event) => setForceRefresh(event.target.checked)} /> Force refresh</label>
             </div>
           </div>
 
-          <div className="grid-and-inspector">
+          {view === "grid" ? <div className="grid-and-inspector">
             <div className="data-grid-wrap">
               {loading ? (
                 <div className="loading-state"><LoaderCircle className="status-spinner" /> Loading research grid…</div>
@@ -410,12 +621,12 @@ export function SourcedGridApp() {
                 <button className="icon-button" onClick={() => setSelectedCell(null)} aria-label="Close evidence"><X size={17} /></button>
               </div>
               {selectedCell ? (
-                <EvidencePanel cell={selectedCell} column={selectedColumn} />
+                <EvidencePanel key={selectedCell.id} cell={selectedCell} column={selectedColumn} history={cellHistory} runId={run?.id} onEditInput={editSelectedInput} onDeleteRow={deleteSelectedRow} onCloneRow={cloneSelectedRow} />
               ) : (
                 <div className="empty-inspector"><ShieldCheck size={24} /><p>Select a generated cell to inspect its sources, cost, and execution receipt.</p></div>
               )}
             </aside>
-          </div>
+          </div> : <RunLog runs={runs} gridId={grid.id} onSelect={setRun} />}
         </section>
       </div>
 
@@ -426,9 +637,22 @@ export function SourcedGridApp() {
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
             <div className="modal-icon"><Github size={21} /></div>
             <h2 id="import-title">Add repositories</h2>
-            <p>Paste one GitHub URL or <code>owner/repo</code> per line. CSV columns are also accepted.</p>
-            <textarea value={importText} onChange={(event) => setImportText(event.target.value)} placeholder={"https://github.com/openai/openai-python\nfastapi/fastapi\nOpenHands/OpenHands"} />
-            <div className="modal-actions"><button className="secondary-button" onClick={() => setImportOpen(false)}>Cancel</button><button className="run-button" onClick={submitImport}><Upload size={15} /> Import repositories</button></div>
+            <p>Paste one value per line, or choose a real CSV file. CSV uses the matching input header or maps its first column.</p>
+            <input className="file-input" type="file" accept=".csv,text/csv" onChange={(event) => parseCsvFile(event.target.files?.[0])} />
+            {importPreview.length ? <div className="import-preview"><strong>CSV preview · {importPreview.length} rows</strong><pre>{JSON.stringify(importPreview.slice(0, 4), null, 2)}</pre><label>Duplicates<select value={duplicateStrategy} onChange={(event) => setDuplicateStrategy(event.target.value as typeof duplicateStrategy)}><option value="skip">Skip existing</option><option value="replace">Replace existing</option><option value="allow">Allow duplicates</option></select></label></div> : <textarea value={importText} onChange={(event) => setImportText(event.target.value)} placeholder={"https://github.com/openai/openai-python\nfastapi/fastapi\nOpenHands/OpenHands"} />}
+            <div className="modal-actions"><button className="secondary-button" onClick={() => { setImportOpen(false); setImportPreview([]); }}>Cancel</button><button className="run-button" onClick={submitImport}><Upload size={15} /> Import rows</button></div>
+          </section>
+        </div>
+      )}
+
+      {templateOpen && (
+        <div className="modal-backdrop">
+          <section className="modal" role="dialog" aria-modal="true" aria-label="Choose a research template">
+            <div className="modal-icon"><Plus size={21} /></div>
+            <h2>Create research grid</h2>
+            <p>Start from a versioned template. Provider endpoints remain controlled by your local settings.</p>
+            <div className="template-list">{templates.map((template) => <button key={template.slug} onClick={() => void chooseTemplate(template.slug)}><strong>{template.name}</strong><span>{template.slug} · v{template.version}</span></button>)}</div>
+            <div className="modal-actions"><button className="secondary-button" onClick={() => setTemplateOpen(false)}>Cancel</button></div>
           </section>
         </div>
       )}
@@ -437,26 +661,43 @@ export function SourcedGridApp() {
         <div className="modal-backdrop">
           <section className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
             <div className="modal-icon"><KeyRound size={21} /></div>
-            <h2 id="settings-title">Local credentials</h2>
-            <p>Keys are encrypted by the local engine. Existing plaintext values are never returned.</p>
+            <h2 id="settings-title">Credentials & LLM providers</h2>
+            <p>Choose a preset or add any OpenAI-compatible endpoint. Keys stay encrypted in the local engine and are never returned.</p>
             <label>GitHub token <span>{secrets.find((item) => item.name === "github_token")?.configured ? "Configured" : "Optional"}</span><input type="password" value={githubToken} onChange={(event) => setGithubToken(event.target.value)} placeholder="github_pat_••••••••" /></label>
-            <label>Anthropic API key <span>{secrets.find((item) => item.name === "anthropic_api_key")?.configured ? "Configured" : "Optional"}</span><input type="password" value={providerKey} onChange={(event) => setProviderKey(event.target.value)} placeholder="sk-ant-••••••••" /></label>
-            <div className="modal-actions"><button className="secondary-button" onClick={() => setSettingsOpen(false)}>Cancel</button><button className="run-button" onClick={saveSecrets}><ShieldCheck size={15} /> Encrypt & save</button></div>
+            <div className="provider-list"><strong>Trusted provider profiles</strong>{providers.map((provider) => <ProviderCard key={provider.id} provider={provider} onChanged={refreshProviders} />)}</div>
+            <details className="provider-create"><summary>Add custom OpenAI-compatible provider</summary>
+              <label>ID<input value={customProvider.id} onChange={(event) => setCustomProvider((value) => ({ ...value, id: event.target.value }))} placeholder="my-provider" /></label>
+              <label>Display name<input value={customProvider.display_name} onChange={(event) => setCustomProvider((value) => ({ ...value, display_name: event.target.value }))} /></label>
+              <label>Base URL<input value={customProvider.base_url} onChange={(event) => setCustomProvider((value) => ({ ...value, base_url: event.target.value }))} placeholder="https://api.example.com/v1" /></label>
+              <label>Default model<input value={customProvider.default_model} onChange={(event) => setCustomProvider((value) => ({ ...value, default_model: event.target.value }))} /></label>
+              <label>Structured output<select value={customProvider.structured_output_mode} onChange={(event) => setCustomProvider((value) => ({ ...value, structured_output_mode: event.target.value as StructuredOutputMode }))}>{Object.entries(outputModeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+              <label>Temperature<input type="number" min={0} max={2} step={0.1} value={customProvider.default_temperature} onChange={(event) => setCustomProvider((value) => ({ ...value, default_temperature: Number(event.target.value) }))} /></label>
+              <div className="provider-pricing"><strong>Estimated USD per 1M tokens</strong><label>Input<input type="number" min={0} step="any" value={customProvider.input_price_per_million_usd} onChange={(event) => setCustomProvider((value) => ({ ...value, input_price_per_million_usd: event.target.value }))} placeholder="Unknown" /></label><label>Cached input<input type="number" min={0} step="any" value={customProvider.cached_input_price_per_million_usd} onChange={(event) => setCustomProvider((value) => ({ ...value, cached_input_price_per_million_usd: event.target.value }))} placeholder="Same as input" /></label><label>Output<input type="number" min={0} step="any" value={customProvider.output_price_per_million_usd} onChange={(event) => setCustomProvider((value) => ({ ...value, output_price_per_million_usd: event.target.value }))} placeholder="Unknown" /></label></div>
+              <label>Credential mode<select value={customProvider.credential_mode} onChange={(event) => setCustomProvider((value) => ({ ...value, credential_mode: event.target.value as "required" | "none" }))}><option value="required">API key (HTTPS public only)</option><option value="none">No credential (local endpoint allowed)</option></select></label>
+              {customProvider.credential_mode === "required" && <label>API key<input type="password" value={customProvider.credential} onChange={(event) => setCustomProvider((value) => ({ ...value, credential: event.target.value }))} /></label>}
+              <button className="secondary-button" onClick={() => void createCustomProvider()}>Confirm trust & add</button>
+            </details>
+            <div className="modal-actions"><button className="secondary-button" onClick={() => setSettingsOpen(false)}>Close</button><button className="run-button" onClick={saveSecrets}><ShieldCheck size={15} /> Save GitHub token</button></div>
           </section>
         </div>
       )}
+      {schemaOpen && <SchemaEditor grid={grid} providers={providers} onClose={() => setSchemaOpen(false)} onSaved={(saved) => { setGrid(saved); setSchemaOpen(false); setNotice("Schema saved atomically."); }} />}
     </main>
   );
 }
 
-function EvidencePanel({ cell, column }: { cell: GridCell; column: ColumnDefinition | null }) {
+function EvidencePanel({ cell, column, history, runId, onEditInput, onDeleteRow, onCloneRow }: { cell: GridCell; column: ColumnDefinition | null; history: CellExecution[]; runId?: string; onEditInput: (value: string) => Promise<void>; onDeleteRow: () => Promise<void>; onCloneRow: () => Promise<void> }) {
   const receipt: Provenance | null | undefined = cell.provenance;
+  const costEstimate = receipt?.metadata.cost_estimate as { available?: boolean } | undefined;
+  const [draft, setDraft] = useState(String(cell.value ?? ""));
   return (
     <div className="evidence-content">
       <div className="result-card">
         <span className="eyebrow">Resolved value</span>
         <p>{formatValue(cell.value, column?.key ?? "")}</p>
       </div>
+      {column?.kind === "input" && <div className="input-cell-editor"><label>Edit input<input value={draft} onChange={(event) => setDraft(event.target.value)} /></label><button className="run-button" onClick={() => void onEditInput(draft)}>Save input</button></div>}
+      <div className="row-actions"><button onClick={() => void onCloneRow()}><Copy size={13} /> Duplicate row</button><button onClick={() => void onDeleteRow()}><Trash2 size={13} /> Delete row</button></div>
       <div className="verified-line"><ShieldCheck size={16} /><div><strong>Source-backed</strong><span>{receipt?.cache_hit ? "Verified from cached source" : "Verified from live source"}</span></div></div>
       <section className="evidence-section">
         <h3>Sources <span>{receipt?.source_urls.length ?? 0}</span></h3>
@@ -472,13 +713,18 @@ function EvidencePanel({ cell, column }: { cell: GridCell; column: ColumnDefinit
           <div><dt>Connector</dt><dd>{receipt?.connector ?? column?.kind ?? "input"}</dd></div>
           <div><dt>Duration</dt><dd>{receipt ? `${receipt.duration_ms.toLocaleString()} ms` : "—"}</dd></div>
           <div><dt>Model</dt><dd>{receipt?.model ?? "Deterministic"}</dd></div>
-          <div><dt>Cost</dt><dd>${receipt?.cost_usd.toFixed(4) ?? "0.0000"}</dd></div>
+          <div><dt>Estimated cost</dt><dd>{costEstimate?.available === false ? "Pricing not configured" : `$${receipt?.cost_usd.toFixed(4) ?? "0.0000"}`}</dd></div>
           <div><dt>Input tokens</dt><dd>{receipt?.input_tokens.toLocaleString() ?? "0"}</dd></div>
           <div><dt>Output tokens</dt><dd>{receipt?.output_tokens.toLocaleString() ?? "0"}</dd></div>
         </dl>
       </section>
       {receipt?.prompt && <section className="evidence-section"><h3>Prompt</h3><pre className="prompt-box">{receipt.prompt}</pre></section>}
-      {receipt?.artifact_hash && <section className="evidence-section"><h3>Artifact integrity</h3><div className="hash-box"><Database size={14} /><code>{receipt.artifact_hash}</code></div></section>}
+      {receipt?.artifact_hash && <section className="evidence-section"><h3>Artifact integrity</h3><a className="hash-box" href={api.artifactUrl(receipt.artifact_hash)}><Database size={14} /><code>{receipt.artifact_hash}</code></a></section>}
+      <section className="evidence-section"><h3>Execution history <span>{history.length}</span></h3><div className="execution-history">{history.map((execution) => <div key={execution.id} className={execution.run_id === runId ? "current" : ""}><StatusDot status={execution.status} /><span><strong>{execution.status}</strong><small>{new Date(execution.created_at).toLocaleString()} · {execution.id.slice(0, 8)}</small></span>{execution.provenance?.cache_hit && <i>cache</i>}</div>)}</div></section>
     </div>
   );
+}
+
+function RunLog({ runs, gridId, onSelect }: { runs: RunSummary[]; gridId: string; onSelect: (run: RunSummary) => void }) {
+  return <section className="run-log"><header><div><span>Immutable run snapshots</span><h2>Run history</h2></div><p>Every run links to its own executions, receipts, cost estimate, and scoped export.</p></header>{runs.length ? <div className="run-list">{runs.map((item) => <article key={item.id}><button className="run-summary-button" onClick={() => onSelect(item)}><StatusDot status={item.status === "completed" ? "succeeded" : item.status} /><span><strong>{item.status.replaceAll("_", " ")}</strong><small>{new Date(item.created_at).toLocaleString()} · {item.id}</small></span></button><dl><div><dt>Done</dt><dd>{item.completed_tasks}/{item.total_tasks}</dd></div><div><dt>Failed</dt><dd>{item.failed_tasks + item.skipped_tasks}</dd></div><div><dt>Estimated cost</dt><dd>${item.spent_usd.toFixed(4)}</dd></div></dl><div className="run-exports"><a href={api.exportUrl(gridId, "csv", item.id)}>CSV</a><a href={api.exportUrl(gridId, "json", item.id)}>JSON + receipts</a></div></article>)}</div> : <div className="empty-run-log"><Activity size={25} /><p>No runs yet. Start research from the grid view.</p></div>}</section>;
 }

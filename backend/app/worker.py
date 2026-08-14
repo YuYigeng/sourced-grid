@@ -3,13 +3,15 @@ from __future__ import annotations
 import asyncio
 import signal
 
-from .db import initialize_database
 from .engine import ResearchWorker
+from .migrations import migrate_database
 
 
 async def main() -> None:
-    initialize_database()
+    migrate_database()
     worker = ResearchWorker()
+    worker.recover_expired_leases()
+    worker.reconcile_incomplete_runs()
     loop = asyncio.get_running_loop()
     for signal_name in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(signal_name, worker.stop)

@@ -37,3 +37,12 @@ def test_valid_template_is_topologically_sorted() -> None:
 def test_invalid_templates_are_rejected(document: str, message: str) -> None:
     with pytest.raises(TemplateValidationError, match=message):
         parse_template(document)
+
+
+def test_legacy_builtin_provider_is_migrated_to_a_profile_reference() -> None:
+    document = BASE.replace("kind: transform", "kind: llm").replace(
+        "depends_on: [url]", "depends_on: [url]\n    config: {provider: anthropic}"
+    )
+    parsed = parse_template(document)
+    assert parsed.columns[1].config["provider_ref"] == "anthropic"
+    assert "provider" not in parsed.columns[1].config

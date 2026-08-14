@@ -39,6 +39,8 @@ class Grid(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(180))
     description: Mapped[str] = mapped_column(Text, default="")
     template_slug: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
+    canvas_layout: Mapped[dict] = mapped_column(JSON, default=dict)
     columns: Mapped[list[ColumnDefinition]] = relationship(
         back_populates="grid", cascade="all, delete-orphan", order_by="ColumnDefinition.position"
     )
@@ -87,10 +89,16 @@ class Cell(Base, TimestampMixin):
     value: Mapped[object | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     cache_key: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    latest_execution_id: Mapped[str | None] = mapped_column(
+        ForeignKey("cell_executions.id", use_alter=True), nullable=True, index=True
+    )
     row: Mapped[GridRow] = relationship(back_populates="cells")
     column: Mapped[ColumnDefinition] = relationship(back_populates="cells")
-    provenance: Mapped[Provenance | None] = relationship(
-        back_populates="cell", cascade="all, delete-orphan", uselist=False
+    executions: Mapped[list[CellExecution]] = relationship(
+        back_populates="cell", foreign_keys="CellExecution.cell_id", passive_deletes=True
+    )
+    latest_execution: Mapped[CellExecution | None] = relationship(
+        foreign_keys=[latest_execution_id], post_update=True
     )
 
 
@@ -101,13 +109,19 @@ class Run(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(40), default="queued", index=True)
     budget_usd: Mapped[float] = mapped_column(Float, default=2.0)
     spent_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    reserved_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    force_refresh: Mapped[bool] = mapped_column(Boolean, default=False)
+    schema_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
     total_tasks: Mapped[int] = mapped_column(Integer, default=0)
     completed_tasks: Mapped[int] = mapped_column(Integer, default=0)
     failed_tasks: Mapped[int] = mapped_column(Integer, default=0)
+    skipped_tasks: Mapped[int] = mapped_column(Integer, default=0)
+    cancelled_tasks: Mapped[int] = mapped_column(Integer, default=0)
     cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     tasks: Mapped[list[RunTask]] = relationship(back_populates="run", cascade="all, delete-orphan")
+    events: Mapped[list[RunEvent]] = relationship(back_populates="run", cascade="all, delete-orphan")
 
 
 class RunTask(Base, TimestampMixin):
@@ -130,13 +144,69 @@ class RunTask(Base, TimestampMixin):
     worker_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     cache_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    execution_id: Mapped[str | None] = mapped_column(ForeignKey("cell_executions.id"), nullable=True)
+    reserved_usd: Mapped[float] = mapped_column(Float, default=0.0)
     run: Mapped[Run] = relationship(back_populates="tasks")
+    execution: Mapped[CellExecution | None] = relationship(foreign_keys=[execution_id])
+
+
+class CellExecution(Base):
+    __tablename__ = "cell_executions"
+    __table_args__ = (
+        Index("idx_executions_cell_created", "cell_id", "created_at"),
+        Index("idx_executions_cache", "cache_key", "cache_expires_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    cell_id: Mapped[str | None] = mapped_column(
+        ForeignKey("cells.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    row_position: Mapped[int] = mapped_column(Integer)
+    column_key: Mapped[str] = mapped_column(String(100))
+    column_label: Mapped[str] = mapped_column(String(180))
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), index=True)
+    run_task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("run_tasks.id", ondelete="SET NULL"), unique=True
+    )
+    status: Mapped[str] = mapped_column(String(30), index=True)
+    value: Mapped[object | None] = mapped_column(JSON, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cache_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cache_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reused_from_execution_id: Mapped[str | None] = mapped_column(
+        ForeignKey("cell_executions.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cell: Mapped[Cell | None] = relationship(back_populates="executions", foreign_keys=[cell_id])
+    provenance: Mapped[Provenance | None] = relationship(
+        back_populates="execution", cascade="all, delete-orphan", uselist=False
+    )
+
+
+class ExecutionDependency(Base):
+    __tablename__ = "execution_dependencies"
+    __table_args__ = (
+        UniqueConstraint("execution_id", "upstream_execution_id", name="uq_execution_dependency"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    execution_id: Mapped[str] = mapped_column(
+        ForeignKey("cell_executions.id", ondelete="CASCADE"), index=True
+    )
+    upstream_execution_id: Mapped[str] = mapped_column(
+        ForeignKey("cell_executions.id", ondelete="RESTRICT"), index=True
+    )
+    column_key: Mapped[str] = mapped_column(String(100))
 
 
 class Provenance(Base):
     __tablename__ = "provenance"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    cell_id: Mapped[str] = mapped_column(ForeignKey("cells.id", ondelete="CASCADE"), unique=True)
+    execution_id: Mapped[str] = mapped_column(
+        ForeignKey("cell_executions.id", ondelete="CASCADE"), unique=True
+    )
+    legacy_cell_id: Mapped[str | None] = mapped_column("cell_id", String(36), nullable=True)
     connector: Mapped[str] = mapped_column(String(80))
     source_urls: Mapped[list[str]] = mapped_column(JSON, default=list)
     artifact_hash: Mapped[str | None] = mapped_column(ForeignKey("artifacts.hash"), nullable=True)
@@ -150,7 +220,37 @@ class Provenance(Base):
     cache_hit: Mapped[bool] = mapped_column(Boolean, default=False)
     metadata_json: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    cell: Mapped[Cell] = relationship(back_populates="provenance")
+    execution: Mapped[CellExecution] = relationship(back_populates="provenance")
+
+
+class ProviderProfile(Base, TimestampMixin):
+    __tablename__ = "provider_profiles"
+    id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    provider_type: Mapped[str] = mapped_column(String(40))
+    display_name: Mapped[str] = mapped_column(String(180))
+    base_url: Mapped[str] = mapped_column(Text)
+    default_model: Mapped[str] = mapped_column(String(180))
+    structured_output_mode: Mapped[str] = mapped_column(String(30), default="json_schema")
+    default_temperature: Mapped[float] = mapped_column(Float, default=0.0)
+    input_price_per_million_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cached_input_price_per_million_usd: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    output_price_per_million_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    credential_mode: Mapped[str] = mapped_column(String(30), default="required")
+    secret_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    trusted: Mapped[bool] = mapped_column(Boolean, default=False)
+    builtin: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class RunEvent(Base):
+    __tablename__ = "run_events"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), index=True)
+    event_type: Mapped[str] = mapped_column(String(80))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    run: Mapped[Run] = relationship(back_populates="events")
 
 
 class Artifact(Base):

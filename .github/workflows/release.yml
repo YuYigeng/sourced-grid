@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image:
+          - { name: web, dockerfile: Dockerfile.web }
+          - { name: engine, dockerfile: Dockerfile.engine }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/sourced-grid-${{ matrix.image.name }}
+          tags: type=ref,event=tag
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.image.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+      - run: echo "${{ matrix.image.name }} ${{ steps.build.outputs.digest }}" > "${{ matrix.image.name }}-digest.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.image.name }}-digest
+          path: ${{ matrix.image.name }}-digest.txt
+
+  release:
+    needs: images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "*-digest"
+          merge-multiple: true
+      - run: sha256sum *-digest.txt > checksums.txt
+      - uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: sourced-grid-source.spdx.json
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            *-digest.txt
+            checksums.txt
+            sourced-grid-source.spdx.json

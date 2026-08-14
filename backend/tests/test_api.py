@@ -11,7 +11,7 @@ def test_workspace_bootstrap_import_export_and_secret_redaction() -> None:
         grids = client.get("/v1/grids").json()
         assert grids[0]["name"] == "GitHub Repository Radar"
         grid_id = grids[0]["id"]
-        before = len(grids[0]["rows"])
+        before = grids[0]["row_count"]
         response = client.post(
             f"/v1/grids/{grid_id}/import",
             json={"values": ["encode/httpx", "encode/httpx"]},
@@ -29,6 +29,9 @@ def test_workspace_bootstrap_import_export_and_secret_redaction() -> None:
         csv_response = client.get(f"/v1/grids/{grid_id}/export?format=csv")
         assert csv_response.status_code == 200
         assert "Repository" in csv_response.text
+        json_response = client.get(f"/v1/grids/{grid_id}/export?format=json")
+        assert json_response.status_code == 200
+        assert json_response.json()["rows"][0]["cells"][0]["provenance"]["created_at"]
 
 
 def test_template_endpoint_and_empty_grid_run_guard() -> None:
@@ -39,3 +42,68 @@ def test_template_endpoint_and_empty_grid_run_guard() -> None:
         empty = client.post("/v1/grids", json={"name": "Empty"}).json()
         response = client.post(f"/v1/grids/{empty['id']}/runs", json={"budget_usd": 1})
         assert response.status_code == 409
+
+
+def test_builtin_llm_providers_and_custom_capabilities() -> None:
+    with TestClient(app) as client:
+        providers = {item["id"]: item for item in client.get("/v1/providers").json()}
+        assert {
+            "anthropic",
+            "openai",
+            "deepseek",
+            "qwen",
+            "zhipu",
+            "minimax",
+            "siliconflow",
+            "ollama",
+        } <= set(providers)
+        assert providers["deepseek"]["structured_output_mode"] == "json_object"
+        assert providers["deepseek"]["input_price_per_million_usd"] == 0.14
+        assert providers["deepseek"]["cached_input_price_per_million_usd"] == 0.0028
+        assert providers["deepseek"]["output_price_per_million_usd"] == 0.28
+        assert providers["ollama"]["credential_mode"] == "none"
+
+        secret = "provider-secret-never-returned"
+        saved = client.put("/v1/providers/deepseek/credential", json={"value": secret})
+        assert saved.status_code == 200
+        assert saved.json() == {"id": "deepseek", "configured": True}
+        assert secret not in client.get("/v1/providers").text
+
+        created = client.post(
+            "/v1/providers",
+            json={
+                "id": "custom-json",
+                "display_name": "Custom JSON",
+                "base_url": "http://127.0.0.1:12345/v1",
+                "default_model": "local-model",
+                "structured_output_mode": "prompt_only",
+                "default_temperature": 0.7,
+                "input_price_per_million_usd": 0.5,
+                "cached_input_price_per_million_usd": 0.05,
+                "output_price_per_million_usd": 1.5,
+                "credential_mode": "none",
+                "trusted": True,
+            },
+        )
+        assert created.status_code == 201
+        assert created.json()["structured_output_mode"] == "prompt_only"
+        assert created.json()["default_temperature"] == 0.7
+        assert created.json()["input_price_per_million_usd"] == 0.5
+
+        patched = client.patch(
+            "/v1/providers/custom-json",
+            json={
+                "structured_output_mode": "json_object",
+                "default_temperature": 0.2,
+                "output_price_per_million_usd": 1.25,
+            },
+        )
+        assert patched.status_code == 200
+        assert patched.json()["structured_output_mode"] == "json_object"
+        assert patched.json()["default_temperature"] == 0.2
+        assert patched.json()["output_price_per_million_usd"] == 1.25
+
+        incompatible = client.patch(
+            "/v1/providers/anthropic", json={"structured_output_mode": "json_schema"}
+        )
+        assert incompatible.status_code == 422

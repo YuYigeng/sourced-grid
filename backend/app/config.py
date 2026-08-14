@@ -28,6 +28,12 @@ class Settings(BaseSettings):
         return f"sqlite:///{(self.data_dir / 'sourcedgrid.db').resolve()}"
 
     @property
+    def database_path(self) -> Path:
+        if self.database_url and self.database_url.startswith("sqlite:///"):
+            return Path(self.database_url.removeprefix("sqlite:///"))
+        return self.data_dir / "sourcedgrid.db"
+
+    @property
     def artifacts_dir(self) -> Path:
         return self.data_dir / "artifacts"
 

@@ -10,8 +10,8 @@ Thanks for helping make sourced research easier to inspect and repeat.
 4. Run the checks below before opening a pull request.
 
 ```bash
-.venv/bin/ruff check backend
-.venv/bin/pytest backend/tests
+backend/.venv/bin/ruff check backend
+backend/.venv/bin/python -m pytest backend/tests
 npm run lint
 npm run build
 npm run test:e2e

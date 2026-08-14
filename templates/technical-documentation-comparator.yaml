@@ -1,0 +1,83 @@
+apiVersion: sourcedgrid/v1alpha1
+kind: ResearchTemplate
+metadata:
+  slug: technical-documentation-comparator
+  name: Technical Documentation Comparator
+  version: 0.1.0
+  description: Compare developer documentation with immutable raw HTML evidence and inherited lineage.
+defaults:
+  budget_usd: 2.0
+columns:
+  - key: documentation_url
+    label: Documentation URL
+    kind: input
+    width: 280
+  - key: raw_html
+    label: Raw HTML
+    kind: http
+    width: 160
+    depends_on: [documentation_url]
+    config:
+      source: documentation_url
+  - key: document_text
+    label: Extracted document
+    kind: transform
+    width: 260
+    depends_on: [raw_html]
+    config:
+      source: raw_html
+      operation: html_to_text
+  - key: target_users
+    label: Target users
+    kind: llm
+    width: 220
+    depends_on: [documentation_url, document_text]
+    config:
+      provider_ref: anthropic
+    prompt: Identify the primary developer audience in at most 40 words.
+    output_schema:
+      type: string
+  - key: core_capabilities
+    label: Core capabilities
+    kind: llm
+    width: 260
+    depends_on: [documentation_url, document_text]
+    config:
+      provider_ref: anthropic
+    prompt: Return the documented core capabilities as a concise list.
+    output_schema:
+      type: array
+      items:
+        type: string
+      maxItems: 8
+  - key: integration_complexity
+    label: Integration complexity
+    kind: llm
+    width: 240
+    depends_on: [documentation_url, document_text]
+    config:
+      provider_ref: anthropic
+    prompt: Classify integration complexity as low, medium, or high and explain why in one sentence.
+    output_schema:
+      type: object
+      properties:
+        level:
+          type: string
+          enum: [low, medium, high]
+        reason:
+          type: string
+      required: [level, reason]
+      additionalProperties: false
+  - key: risks
+    label: Adoption risks
+    kind: llm
+    width: 280
+    depends_on: [documentation_url, document_text, integration_complexity]
+    config:
+      provider_ref: anthropic
+    prompt: List up to five integration or adoption risks supported by the documentation. Do not invent missing facts.
+    output_schema:
+      type: array
+      items:
+        type: string
+      maxItems: 5

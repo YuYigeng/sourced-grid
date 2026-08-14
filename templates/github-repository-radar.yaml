@@ -93,7 +93,7 @@ columns:
     width: 300
     depends_on: [canonical_name, github_snapshot, health_score]
     config:
-      provider: anthropic
+      provider_ref: anthropic
       model: claude-sonnet-4-5
     prompt: Summarize the repository's product, target user, strongest proof point, and main adoption risk in no more than 70 words.
     output_schema:
@@ -104,7 +104,7 @@ columns:
     width: 260
     depends_on: [canonical_name, github_snapshot, health_score, readme_summary]
     config:
-      provider: anthropic
+      provider_ref: anthropic
       model: claude-sonnet-4-5
     prompt: Give a one-sentence adopt, watch, or skip recommendation. Cite only facts present in the supplied source data.
     output_schema:
