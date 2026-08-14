@@ -22,7 +22,7 @@
 
 <p align="center">
   <a href="docs/assets/sourced-grid-demo.mp4">观看 50 秒产品演示</a> ·
-  <a href="https://github.com/YuYigeng/sourced-grid/releases/tag/v0.1.0-rc.1">查看 v0.1.0-rc.1 Release</a>
+  <a href="https://github.com/YuYigeng/sourced-grid/releases/tag/v0.1.0">查看 v0.1.0 Release</a>
 </p>
 
 ## 研究需要收据，而不只是一个答案
@@ -125,7 +125,7 @@ docker compose up --build
 
 ## 当前状态
 
-`v0.1.0-rc.1` 是第一个公开候选版本。受保护的 `main` 分支已经通过后端测试、生产 Web 构建、浏览器 E2E、迁移测试和 Docker smoke。Release 同时提供公开的 amd64/arm64 GHCR 镜像、provenance、digest、checksums 和 SPDX SBOM。
+`v0.1.0` 是第一个公开稳定版本。受保护的 `main` 分支已经通过后端测试、生产 Web 构建、浏览器 E2E、迁移测试和 Docker smoke。Release 同时提供公开的 amd64/arm64 GHCR 镜像、provenance、digest、checksums 和 SPDX SBOM。
 
 当前真实托管模型验收覆盖 GitHub + DeepSeek。Anthropic 已完成连接器、Schema 和脱敏自动化测试，但尚未使用真实 Anthropic 账号运行。
 

@@ -2,6 +2,17 @@
 
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.0] - 2026-08-14
+
+### Added
+
+- A bilingual English and Simplified Chinese project introduction with verified product screenshots, workflow, provider coverage, and quick-start guidance.
+
+### Verified
+
+- Promoted the complete `0.1.0-rc.1` feature set to the first stable release after protected-branch CI, isolated Docker startup and migration, Worker restart recovery, live GitHub + DeepSeek execution, immutable run-scoped export, cache replay, and credential-pattern scans all passed.
+- Updated the release workflow actions to their Node 24-compatible major versions without changing the published image, provenance, SBOM, digest, or checksum contract.
+
 ## [0.1.0-rc.1] - 2026-08-14
 
 ### Added
