@@ -9,7 +9,7 @@ description = "Local research engine for SourcedGrid"
 requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.14,<2",
-  "cryptography>=44,<46",
+  "cryptography>=50.0.0,<51",
   "fastapi>=0.116,<1",
   "httpx>=0.28,<1",
   "jsonschema>=4.25,<5",
