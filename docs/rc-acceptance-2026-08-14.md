@@ -6,6 +6,7 @@ This record captures the checks performed against merge commit `33aba103dac41e83
 
 - The protected `main` workflow passed `backend`, `web`, and `containers`: [GitHub Actions run 31764850304](https://github.com/YuYigeng/sourced-grid/actions/runs/31764850304).
 - Production `npm audit` reported no high or critical findings. The backend suite passed 32 tests, including migration from the legacy schema fixture.
+- Repository-wide Dependabot activation surfaced alerts outside the production npm audit. The RC branch upgrades `cryptography` to 50.0.0, pytest to 9.1.1 with pytest-asyncio 1.4.0, js-yaml to 4.3.1, patched brace-expansion releases, and Babel 7.29.7+ lock entries; the full npm audit then reports zero vulnerabilities.
 - A separate Compose project with a new data volume built ARM64 images and reached healthy API, Web, and Worker services in 246.67 seconds.
 - Its first no-credential run completed 27 deterministic GitHub/Transform tasks in about ten seconds. Six LLM tasks failed in isolation because no hosted-provider credential was configured.
 - The immediate replay reused 30 of 36 immutable executions, including all GitHub, Transform, and input snapshot executions. Run-scoped JSON export returned all three rows as an attachment.
