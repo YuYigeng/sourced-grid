@@ -6,9 +6,11 @@
 
 SourcedGrid turns a list of repositories into a structured research grid. Each generated cell keeps a receipt: source URLs, raw artifact hash, connector, model, prompt, duration, token use, and estimated cost.
 
-![SourcedGrid workbench](docs/assets/sourced-grid-workbench.png)
+![SourcedGrid workbench](docs/assets/sourced-grid-workbench-rc.png)
 
 ![Visual column DAG editor](docs/assets/sourced-grid-dag.png)
+
+[Watch the 50-second v0.1 RC walkthrough](docs/assets/sourced-grid-demo.mp4), covering the 100-repository workbench, trusted Provider pricing, the visual DAG, immutable Run history, and repository import.
 
 The first included workflow, **GitHub Repository Radar**, compares repository health, activity, licensing, releases, README positioning, and adoption risk without turning research into an untraceable chat transcript.
 
@@ -130,7 +132,7 @@ The suite covers lossless migration, immutable three-run export, cache fingerpri
 
 ## Releases and roadmap
 
-See [`ROADMAP.md`](ROADMAP.md) and [`CHANGELOG.md`](CHANGELOG.md). Release tags build signed-provenance-ready multi-architecture GHCR images, attach an SPDX SBOM, and publish checksums and image digests.
+See [`ROADMAP.md`](ROADMAP.md), [`CHANGELOG.md`](CHANGELOG.md), and the [`v0.1 RC acceptance record`](docs/rc-acceptance-2026-08-14.md). Release tags build signed-provenance-ready multi-architecture GHCR images, attach an SPDX SBOM, and publish checksums and image digests.
 
 ## Project layout
 

@@ -2,7 +2,7 @@
 
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.1.0-rc.1] - 2026-08-14
 
 ### Added
 
@@ -23,4 +23,5 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - Demo data and the flagship E2E contract now both use twelve columns.
 - Compose binds the single-user services to loopback by default.
 - Next.js and production dependencies upgraded to versions with no high or critical production audit findings.
+- Cryptography, pytest, js-yaml, brace-expansion, and Babel lock entries upgraded to patched releases after enabling repository-wide Dependabot alerts.
 - GitHub repository migrations now follow only same-origin API redirects, while unavailable optional GitHub resources degrade to empty evidence instead of failing an entire row.
