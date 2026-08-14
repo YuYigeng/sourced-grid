@@ -22,8 +22,12 @@ This record captures the checks performed against the protected `main` release c
 - GitHub and the trusted OpenAI-compatible DeepSeek profile have passed live authenticated runs.
 - Anthropic remains available as a built-in profile and is covered by connector, schema, error-redaction, and synthetic-credential tests, but it has not been exercised against a live Anthropic account because the project owner does not have an Anthropic API credential. This limitation is accepted for `v0.1.0-rc.1` and is not represented as a successful live-provider test.
 
-## Remaining after the RC tag
+## Publication verification
 
-- Verify the Release workflow publishes GHCR `linux/amd64` and `linux/arm64` images, image digests, source SBOM, provenance, and checksums.
+- [Release workflow 31777716796](https://github.com/YuYigeng/sourced-grid/actions/runs/31777716796) completed successfully and published the [`v0.1.0-rc.1` prerelease](https://github.com/YuYigeng/sourced-grid/releases/tag/v0.1.0-rc.1).
+- Anonymous registry inspection verified public `linux/amd64` and `linux/arm64` manifests plus per-platform attestation manifests for both images.
+- Engine digest: `sha256:1e10fe453cf3f75090071d08345705d45441bb990cc00c5b1874050cf6ff14c7`.
+- Web digest: `sha256:cf95046a3a070f2515cc3406abbb0830b67f9176b73145d072847b94c2758f2b`.
+- The attached `checksums.txt` validates both digest files, and `sourced-grid-source.spdx.json` is a valid SPDX JSON document.
 
 The clean acceptance volumes contained only synthetic credentials or no credentials and temporary results. They were deleted after the scans; the user's existing encrypted data volume was rebuilt with the patched RC images, restarted, and verified intact.
