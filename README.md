@@ -22,7 +22,7 @@
 
 <p align="center">
   <a href="docs/assets/sourced-grid-demo.mp4">Watch the 50-second product walkthrough</a> ·
-  <a href="https://github.com/YuYigeng/sourced-grid/releases/tag/v0.1.0-rc.1">View the v0.1.0-rc.1 release</a>
+  <a href="https://github.com/YuYigeng/sourced-grid/releases/tag/v0.1.0">View the v0.1.0 release</a>
 </p>
 
 ## Research with receipts, not black-box answers
@@ -125,7 +125,7 @@ Read the full [architecture and trust-boundary guide](docs/architecture.md).
 
 ## Current status
 
-`v0.1.0-rc.1` is the first public release candidate. The protected `main` branch passes backend tests, production Web build, browser E2E, migration checks, and Docker smoke tests. The release publishes public multi-architecture GHCR images, provenance, digests, checksums, and an SPDX SBOM.
+`v0.1.0` is the first stable public release. The protected `main` branch passes backend tests, production Web build, browser E2E, migration checks, and Docker smoke tests. The release publishes public multi-architecture GHCR images, provenance, digests, checksums, and an SPDX SBOM.
 
 Live hosted-provider acceptance currently covers GitHub + DeepSeek. Anthropic is implemented and covered by connector, schema, and redaction tests, but has not been exercised against a live Anthropic account.
 
