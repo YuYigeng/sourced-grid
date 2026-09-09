@@ -16,7 +16,7 @@
   "dependencies": {
     "@dagrejs/dagre": "3.1.1",
     "@xyflow/react": "12.11.3",
-    "csv-parse": "6.1.0",
+    "csv-parse": "7.0.2",
     "lucide-react": "^0.468.0",
     "next": "16.3.0",
     "react": "19.2.6",
